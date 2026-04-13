@@ -262,13 +262,15 @@ const database = {
         [],
       ); //User ID 1 will always be the user that initially establishes the relationship. Internally, the type will always be 3 for both incoming and outgoing FRs to avoid inserting 2 columns for one relationship. Checking whether the user id is in column 1 will also be the way to determine blocked users.
 
+      // fix weird message bug for NULL messages
       await database.runQuery(
         `
-            CREATE TABLE IF NOT EXISTS user_notes (
-                author_id TEXT,
-                user_id TEXT,
-                note TEXT DEFAULT NULL
-            );`,
+            -- Check how many are affected
+            -- SELECT COUNT(*) FROM channels WHERE guild_id = 'NULL';
+
+            -- Fix them all
+            UPDATE channels SET guild_id = NULL WHERE guild_id = 'NULL';
+            `,
         [],
       );
 
