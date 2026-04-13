@@ -272,6 +272,18 @@ const database = {
         [],
       );
 
+      // fix weird message bug for NULL messages
+      await database.runQuery(
+        `
+        -- Check how many are affected
+        -- SELECT COUNT(*) FROM channels WHERE guild_id = 'NULL';
+        
+        -- Fix them all
+        UPDATE channels SET guild_id = NULL WHERE guild_id = 'NULL';
+        `,
+        [],
+      );
+      
       //never doing user -> nitro subscriptions, so this needs to be clarified.
       await database.runQuery(
         `
