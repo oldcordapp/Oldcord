@@ -262,15 +262,13 @@ const database = {
         [],
       ); //User ID 1 will always be the user that initially establishes the relationship. Internally, the type will always be 3 for both incoming and outgoing FRs to avoid inserting 2 columns for one relationship. Checking whether the user id is in column 1 will also be the way to determine blocked users.
 
-      // fix weird message bug for NULL messages
       await database.runQuery(
         `
-            -- Check how many are affected
-            -- SELECT COUNT(*) FROM channels WHERE guild_id = 'NULL';
-
-            -- Fix them all
-            UPDATE channels SET guild_id = NULL WHERE guild_id = 'NULL';
-            `,
+            CREATE TABLE IF NOT EXISTS user_notes (
+                author_id TEXT,
+                user_id TEXT,
+                note TEXT DEFAULT NULL
+            );`,
         [],
       );
 
@@ -4686,7 +4684,7 @@ const database = {
 
       const row = rows[0];
 
-      if (row.guild_id === null) {
+     if (row.guild_id === null || row.guild_id === 'NULL' || row.guild_id === '') {
         //dm channel / group dm
 
         const privChannel = {
@@ -4698,12 +4696,12 @@ const database = {
 
         if (privChannel.type === 1) {
           const dm_info = await database.getDMInfo(privChannel.id);
-
           const recipientIDs = dm_info.recipients;
           const recipients = [];
-          for (let i = 0; i < dm_info.recipients.length; i++) {
+          for (let i = 0; i < recipientIDs.length; i++) {
             const user = await database.getAccountByUserId(recipientIDs[i]);
             if (user) recipients.push(miniUserObject(user));
+            else recipients.push({ id: recipientIDs[i], username: 'Deleted User', discriminator: '0000', avatar: null, bot: false }); // fallback for deleted users
           }
 
           if (dm_info != null) {
