@@ -21,6 +21,8 @@ export type MRIdentify = MRPacket<MROpcode.IDENTIFY, {
   public_ip: string;
   public_port: number;
   timestamp: number;
+  lat?: number;
+  lon?: number;
 }>;
 
 export type MRAnswer = MRPacket<MROpcode.ANSWER, {

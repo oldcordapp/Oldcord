@@ -66,13 +66,6 @@ export interface Config {
         site_key : string;
         enabled : boolean;
     };
-    db_config : {
-        host: string;
-        port: number;
-        database: string;
-        user: string;
-        password: string;
-    };
     email_config : {
         fromAddress : string;
         "brevo-api-key" : string;

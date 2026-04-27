@@ -90,7 +90,7 @@ export const AccountService = {
                 type: acc.platform,
                 name: acc.username,
                 revoked: acc.revoked,
-                integrations: acc.integrations as any[],
+                integrations: acc.integrations,
                 visibility: acc.visibility,
                 friendSync: acc.friendSync,
             } as ConnectedAccount));
@@ -360,7 +360,7 @@ export const AccountService = {
                 avatar: w.avatar,
                 bot: true,
                 webhook: true,
-            } as any));
+            }));
 
             return results;
         } catch (error) {

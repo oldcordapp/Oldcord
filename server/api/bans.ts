@@ -73,7 +73,7 @@ router.put(
           user: {
             id: req.params.memberid as string
           }
-        } as any; //mmhmm.. need to move this to use partial member object
+        } as any //mmhmm.. need to move this to use partial member object
       }
 
       if (userInGuild) {

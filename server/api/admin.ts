@@ -78,9 +78,9 @@ router.get('/users/:userid', staffAccessMiddleware(3), async (req: Request, res:
           }
         }
       }
-    } as any);
+    });
 
-    const formattedBots = bots.map((bot: any) => ({
+    const formattedBots = bots.map((bot) => ({
       avatar: bot.avatar,
       discriminator: bot.discriminator,
       username: bot.username,
@@ -95,7 +95,7 @@ router.get('/users/:userid', staffAccessMiddleware(3), async (req: Request, res:
         redirect_uris: [],
         rpc_application_state: 0,
         rpc_origins: [],
-        owner: globalUtils.miniUserObject(bot.application?.owner)
+        owner: globalUtils.miniUserObject(bot.application.owner as User)
       },
     }));
 
@@ -521,7 +521,7 @@ router.get('/staff/audit-logs', staffAccessMiddleware(4), async (_req: Request, 
     });
 
     return res.status(200).json(staffWithLogs.flatMap((staff) => {
-      const entries = (staff.audit_log as any[]) ?? [];
+      const entries = (staff.audit_log as unknown as StaffAuditLogEntry[]) ?? [];
 
       return entries.map((logEntry) => ({
         ...logEntry,
@@ -881,7 +881,7 @@ router.delete('/messages/:messageid', staffAccessMiddleware(2), async (req: Requ
       include: {
         members: true
       }
-    } as any); // make this more efficient
+    }); // make this more efficient
 
     if (!guildRet) {
       return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);

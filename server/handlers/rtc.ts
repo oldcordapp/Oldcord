@@ -120,7 +120,26 @@ async function handleIdentify(socket: WebSocket, packet: RTCIdentify) {
       }),
     );
   } else {
-    const mediaServer = ctx.mrServer?.getRandomMediaServer();
+    let lat = 0;
+    let lon = 0;
+
+    try {
+      const userIp = socket.ip_address;
+      if (userIp && userIp !== '127.0.0.1' && userIp !== '::1') {
+        const response = await fetch(`http://ip-api.com/json/${userIp}`);
+        if (response.ok) {
+          const data = (await response.json()) as any;
+          if (data.status === 'success') {
+            lat = data.lat;
+            lon = data.lon;
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    const mediaServer = ctx.mrServer?.getClosestMediaServer(lat, lon);
 
     if (mediaServer === null) {
       return;

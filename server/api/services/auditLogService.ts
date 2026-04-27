@@ -113,8 +113,8 @@ export const AuditLogService = {
                 changes: e.changes ?? [],
                 options: e.options ?? {}
             })),
-            users: usersResponse.map(u => globalUtils.miniUserObject(u as any)),
-            webhooks: webhooksResponse as any[],
+            users: usersResponse.map(u => globalUtils.miniUserObject(u)),
+            webhooks: webhooksResponse,
             integrations: []
         };
     }

@@ -1,3 +1,4 @@
+import ctx from "../../context.ts";
 import type { MediasoupWebRtcClient } from "./MediasoupWebRtcClient.ts";
 
 class VoiceRoom {
@@ -23,7 +24,7 @@ class VoiceRoom {
     client.codecs = codecs;
     client.headerExtensions = rtpHeaders;
 
-    const supportedCodecs = (global as any).MEDIA_CODECS.map((codec: any) => {
+    const supportedCodecs = ctx.MEDIA_CODECS.map((codec: any) => {
       const codecName = codec.mimeType.split('/')[1];
       const alternativePayloadType = codecName === 'opus' ? 111 : 102;
       return {

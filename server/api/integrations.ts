@@ -23,11 +23,11 @@ router.get(
 
       const baseUrl = 'https://api.klipy.com/v2/search';
       const params = new URLSearchParams({
-        q: query,
+        q: query as string,
         key: ctx.config?.klipy_api_key,
-        limit: 50,
+        limit: '50',
         media_filter: 'tinygif',
-      } as any).toString();
+      }).toString();
 
       const url = `${baseUrl}?${params}`;
 

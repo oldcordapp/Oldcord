@@ -271,7 +271,6 @@ const globalUtils = {
       ? _config.base_url + ':' + _config.signaling_server_port
       : _config.signaling_server_url;
   },
-  unavailableGuildsStore: [] as any[],
   generateString: (length: number): string => {
     let result = '';
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -1190,7 +1189,6 @@ export const {
   generateSsrc,
   generateGatewayURL,
   generateRTCServerURL,
-  unavailableGuildsStore,
   generateString,
   getUserPresence,
   getGuildPresences,

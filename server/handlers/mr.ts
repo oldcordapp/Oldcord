@@ -18,10 +18,11 @@ const OPCODES = {
 
 async function handleIdentify(socket: WebSocket, packet: MRIdentify) {
   const { public_ip, public_port, timestamp } = packet.d;
+  const lat = packet.d.lat || 0;
+  const lon = packet.d.lon || 0;
 
   ctx.mrServer?.debug(`New media server has connected! Added to internal store.`);
 
-  //to-do find a proper & fast way to lookup these public ips to serve whats close to a user
 
   socket.public_ip = public_ip;
   socket.public_port = public_port;
@@ -32,6 +33,8 @@ async function handleIdentify(socket: WebSocket, packet: MRIdentify) {
     port: public_port,
     public_ip: public_ip,
     seen_at: timestamp,
+    lat: lat,
+    lon: lon
   });
 
   socket.send(

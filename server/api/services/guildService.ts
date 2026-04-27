@@ -619,6 +619,7 @@ export const GuildService = {
                     permission_overwrites: [],
                     last_message_id: c.type === 0 ? '0' : undefined
                 })),
+                mfa_level: 0,
                 members: [{
                     user: globalUtils.miniUserObject(owner),
                     nick: null,

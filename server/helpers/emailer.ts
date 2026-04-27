@@ -27,9 +27,9 @@ class Emailer {
     config: EmailConfig
   ) {
     this.config = config;
-    this.max_per_timeframe = config.max_per_timeframe;
-    this.timeframe_ms = config.timeframe_ms;
-    this.ratelimiter_modifier = config.ratelimiter_modifier;
+    this.max_per_timeframe = this.config.max_per_timeframe;
+    this.timeframe_ms = this.config.timeframe_ms; // 1000 * 60 * 60 * 24; as default
+    this.ratelimiter_modifier = this.config.ratelimiter_modifier;
 
     setInterval(() => {
       if (this.ratelimited && this.ratelimitedWhen !== null) {

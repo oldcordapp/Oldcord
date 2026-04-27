@@ -101,8 +101,8 @@ if (!ctx.using_media_relay) {
 
 if (globalUtils.config.email_config.enabled) {
   ctx.emailer = new emailer(
-    globalUtils.config.email_config as any
-  ); //to-do
+    globalUtils.config.email_config
+  );
 }
 
 ctx.sessions = new Map<string, Session>();
@@ -216,18 +216,14 @@ function getIPAddress() {
   }
 
   let rtcHttpServer: Server<typeof IncomingMessage, typeof ServerResponse> | null = null;
-  let mrHttpServer: Server<typeof IncomingMessage, typeof ServerResponse> | null = null;
 
   if (certificates) {
     rtcHttpServer = https.createServer(certificates);
-    mrHttpServer = https.createServer(certificates);
   } else {
     rtcHttpServer = createServer();
-    mrHttpServer = createServer();
   }
 
   rtcHttpServer.listen(config.signaling_server_port);
-  mrHttpServer.listen((config.mr_server as any).port);
 
   ctx.udpServer!.start(config.udp_server_port, config.debug_logs.udp ?? true);
   ctx.rtcServer!.start(
@@ -237,7 +233,7 @@ function getIPAddress() {
 
   if (ctx.using_media_relay) {
     ctx.mrServer = mrServer;
-    ctx.mrServer.start(mrHttpServer, config.debug_logs.mr ?? true);
+    ctx.mrServer.start(config.debug_logs.mr ?? true);
   }
 
   if (!ctx.using_media_relay) {

@@ -65,17 +65,13 @@
     "site_key": "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI",
     "enabled": true
   },
-  "db_config": {
-    "host": "localhost",
-    "port": 5432,
-    "database": "oldcord_v3",
-    "user": "postgres",
-    "password": "postgres_password"
-  },
   "email_config": {
     "fromAddress": "support@example.com",
     "brevo-api-key": "",
-    "enabled": false
+    "enabled": false,
+    "timeframe_ms" : 86400000,
+    "ratelimiter_modifier" : 1.2,
+    "max_per_timeframe" : 100
   },
   "limits": {
     "username": {

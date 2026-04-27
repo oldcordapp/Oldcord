@@ -12,6 +12,7 @@ declare module 'ws' {
     session: Session;
     public_ip?: string;
     public_port?: number;
+    port?: number;
     emitter?: EventEmitter;
     isChrome?: boolean;
     userAgent?: string;

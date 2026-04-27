@@ -7,6 +7,7 @@ import embedder from "../../helpers/embedder.ts";
 import type { Message } from "../../types/message.ts";
 import type { User } from "../../types/user.ts";
 import ctx from "../../context.ts";
+import type { Reaction } from "../../types/reaction.ts";
 
 export const MessageService = {
     formatMessage: (row: any, author: any, mentions: any, mention_roles: any, reactions: any, isWebhook: boolean): Message => {
@@ -551,7 +552,7 @@ export const MessageService = {
 
             if (!message) return false;
 
-            let reactions = Array.isArray(message.reactions) ? (message.reactions as any[]) : [];
+            let reactions = Array.isArray(message.reactions) ? (message.reactions as unknown as Reaction[]) : [];
 
             reactions = reactions.filter(
                 (x) => !(x.user_id === userId && x.emoji.id === emojiId && x.emoji.name === emojiName)
@@ -567,7 +568,7 @@ export const MessageService = {
 
             await prisma.message.update({
                 where: { message_id: messageId },
-                data: { reactions: reactions }
+                data: { reactions: reactions as any }
             });
 
             return true;

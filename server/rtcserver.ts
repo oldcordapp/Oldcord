@@ -6,7 +6,7 @@ import { OPCODES, rtcHandlers } from './handlers/rtc.ts';
 import { logText } from './helpers/logger.ts';
 import { type GatewayPayload, GatewayPayloadSchema } from './types/gateway.ts';
 import type WebSocket from 'ws';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 const HEARTBEAT_INTERVAL = 41250;
@@ -130,7 +130,7 @@ export class RtcServer extends EventEmitter {
     }
   }
 
-  public async start(server: any, debug_logs = false) {
+  public async start(server: Server, debug_logs = false) {
     await sodium.ready;
 
     this.debug_logs = debug_logs;

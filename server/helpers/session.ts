@@ -46,7 +46,7 @@ class session implements Session {
   public type: 'gateway' | 'voice';
   public dead: boolean;
   public ratelimited: boolean;
-  public unavailable_guilds: any[];
+  public unavailable_guilds: Guild[];
   public presences: Presence[];
   public read_states: any[];
   public guildCache: Guild[];
@@ -496,13 +496,7 @@ class session implements Session {
         for (let guild of guilds) {
           if (guild.unavailable) {
             guilds = guilds.filter((x) => x.id !== guild.id);
-            this.unavailable_guilds.push(guild.id);
-            continue;
-          }
-
-          if (globalUtils.unavailableGuildsStore.includes(guild.id)) {
-            guilds = guilds.filter((x) => x.id !== guild.id);
-            this.unavailable_guilds.push(guild.id);
+            this.unavailable_guilds.push(guild);
             continue;
           }
 
