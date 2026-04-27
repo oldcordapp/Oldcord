@@ -5,7 +5,7 @@ import type { User } from "./user.ts";
 export interface Invite {
     code: string;
     temporary?: boolean;
-    revoked?: boolean; //To-do: is this necessary anymore?
+    revoked?: boolean;
     inviter: User; //Always a public user
     max_age: number;
     max_uses: number;

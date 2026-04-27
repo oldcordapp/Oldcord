@@ -251,11 +251,12 @@ router.post(
       const ticket = req.body.ticket;
       const code = req.body.code;
 
-      if (!code || !ticket) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Invalid TOTP code',
-        });
+      if (!code) {
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
+      }
+
+      if (!ticket) {
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_TICKET);
       }
 
       const ticketData = await prisma.mfaLoginTicket.findUnique({
@@ -264,13 +265,13 @@ router.post(
       });
 
       if (!ticketData || !ticketData.user) {
-        return res.status(400).json({ code: 400, message: 'Invalid ticket' });
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_TICKET);
       }
 
       const user = ticketData.user;
 
       if (!user.mfa_enabled || !user.mfa_secret) {
-        return res.status(400).json({ code: 400, message: 'MFA not enabled' });
+        return res.status(400).json(errors.response_400.TWOFA_NOT_ENABLED);
       }
 
       const valid = totp.verify({
@@ -280,7 +281,7 @@ router.post(
       });
 
       if (!valid) {
-        return res.status(400).json({ code: 400, message: 'Invalid TOTP code' });
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
       }
 
       await prisma.mfaLoginTicket.delete({
@@ -338,10 +339,7 @@ router.post(
       }
 
       if (account.disabled_until) {
-        return res.status(400).json({
-          code: 400,
-          email: 'This account has been disabled.',
-        });
+        return res.status(403).json(errors.response_403.ACCOUNT_DISABLED);
       } //figure this original one out from 2017
 
       //let emailToken = globalUtils.generateString(60);
@@ -424,7 +422,7 @@ router.post(
       if (tryUseEmailToken.count == 0) {
         return res.status(400).json({
           token: 'Invalid email verification token.',
-        });
+        }); //Figure out this error 
       }
 
       return res.status(200).json({

@@ -678,11 +678,12 @@ router.post(
       const secret = req.body.secret;
       const account = req.account;
 
-      if (!code || !secret) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Code and secret is required to enable TOTP',
-        }); //figure this one out too
+      if (!code) {
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
+      }
+
+      if (!secret) {
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_SECRET);
       }
   
       let user_mfa: any = await prisma.user.findUnique({
@@ -713,10 +714,7 @@ router.post(
       });  //I KNOW I KNOW
 
       if (!valid) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Invalid TOTP code',
-        }); //to-do find the actual error msgs
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
       }
 
       await prisma.user.update({
@@ -768,10 +766,7 @@ router.post(
       const account = req.account;
 
       if (!code) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Code is required to disable TOTP',
-        });
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
       }
 
       let user_mfa: any = await prisma.user.findUnique({
@@ -802,10 +797,7 @@ router.post(
       });  //I KNOW I KNOW
 
       if (!valid) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Invalid TOTP code',
-        }); //to-do find the actual error msgs
+        return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
       }
 
       await prisma.user.update({

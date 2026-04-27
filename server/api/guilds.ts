@@ -204,11 +204,8 @@ async function guildDeleteRequest(req: Request, res: Response) {
         const valid = await AccountService.validateTotpCode(user.id, code);
 
         if (!valid) {
-          return res.status(400).json({
-            code: 400,
-            message: 'Invalid TOTP Code',
-          });
-        } //Is there a response for this?
+          return res.status(400).json(errors.response_400.INVALID_TWOFA_CODE);
+        } //Is there a response for this? Yes.
       }
 
       await dispatcher.dispatchEventInGuild(guild.id, 'GUILD_DELETE', {
