@@ -80,26 +80,44 @@ export const AuditLogService = {
         });
     },
 
-    async getAuditLogEntries(guildId: string, limit: number): Promise<{
+    async getAuditLogEntries(guildId: string, limit: number, action_type?: number, before_id?: string, user_id?: string): Promise<{
         audit_log_entries: any[],
         users: any[],
         webhooks: any[],
         integrations: any[]
     }> {
+        const clampedLimit = Math.max(1, Math.min(limit || 50, 50));
+
+        const whereClause: any = {
+            guild_id: guildId,
+        };
+
+        if (action_type !== undefined && !isNaN(action_type)) {
+            whereClause.action_type = action_type;
+        }
+
+        if (before_id !== undefined) {
+            whereClause.id = { lt: before_id };
+        }
+
+        if (user_id !== undefined) {
+            whereClause.user_id = user_id;
+        }
+
         const entries = await prisma.auditLog.findMany({
-            where: { guild_id: guildId },
-            take: limit,
+            where: whereClause,
+            take: clampedLimit,
             orderBy: { id: 'desc' }
         });
 
-        const userIds = [...new Set(entries.map(e => e.user_id))];
-        const webhookIds = [...new Set(
-            entries
-                .filter(e => e.action_type >= 50 && e.action_type <= 52)
-                .map(e => e.target_id)
-        )].filter(id => id !== null) as string[];
+        const allIds = new Set<string>();
 
-        const allObjects = await AccountService.getByIds([...userIds as string[], ...webhookIds as string[]]);
+        entries.forEach(e => {
+            if (e.user_id) allIds.add(e.user_id);
+            if (e.target_id) allIds.add(e.target_id);
+        });
+
+        const allObjects = await AccountService.getByIds(Array.from(allIds));
         const usersResponse = allObjects.filter(o => !('webhook' in o));
         const webhooksResponse = allObjects.filter(o => 'webhook' in o);
 
@@ -111,7 +129,7 @@ export const AuditLogService = {
                 action_type: e.action_type,
                 reason: e.reason ?? undefined,
                 changes: e.changes ?? [],
-                options: e.options ?? {}
+                options: e.options ?? undefined
             })),
             users: usersResponse.map(u => globalUtils.miniUserObject(u)),
             webhooks: webhooksResponse,

@@ -25,6 +25,7 @@ import ctx from '../context.ts';
 import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType } from '../types/auditlog.ts';
 import { prisma } from '../prisma.ts';
+import type { WebSocket } from "ws";
 
 const router = Router({
   mergeParams: true
@@ -126,13 +127,13 @@ router.post(
 
         const joined_at = new Date().toISOString();
 
-        if (isOnline) {
+        if (isOnline && guild.members) {
           listItems.push({
             member: {
-              user: globalUtils.miniUserObject(guild.members!![0]?.user!!),
+              user: globalUtils.miniUserObject(guild.members[0]?.user),
               roles: [],
               presence: {
-                user: globalUtils.miniUserObject(guild.members!![0]?.user!!),
+                user: globalUtils.miniUserObject(guild.members[0]?.user),
                 status: presence.status,
                 activities: [],
                 game: null
@@ -146,13 +147,13 @@ router.post(
 
         listItems.push({ group: { id: 'offline', count: offlineCount } });
 
-        if (!isOnline) {
+        if (!isOnline && guild.members) {
           listItems.push({
             member: {
-              user: globalUtils.miniUserObject(guild.members!![0]?.user!!),
+              user: globalUtils.miniUserObject(guild.members[0]?.user),
               roles: [],
               presence: {
-                user: globalUtils.miniUserObject(guild.members!![0]?.user!!),
+                user: globalUtils.miniUserObject(guild.members[0]?.user),
                 status: 'offline',
                 activities: [],
                 game: null
@@ -742,8 +743,17 @@ router.get(
   cacheForMiddleware(60 * 5, "private", false),
   async (req: Request, res: Response) => {
     try {
-      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-      const entries = await AuditLogService.getAuditLogEntries(req.params.guildid as string, limit);
+      const limit = parseInt(req.query.limit as string) || 50;
+      const action_type = req.query.action_type ? parseInt(req.query.action_type as string) : undefined;
+      const before = (req.query.before as string) || undefined;
+      const user_id = (req.query.user_id as string) || undefined;
+      const entries = await AuditLogService.getAuditLogEntries(
+        req.params.guildid as string, 
+        limit, 
+        action_type, 
+        before,
+        user_id
+      );
 
       return res.status(200).json(entries);
     } catch (error) {

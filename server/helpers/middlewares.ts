@@ -133,9 +133,13 @@ async function clientMiddleware(req: Request, res: Response, next: NextFunction)
 
     cookies = req.cookies;
 
-    if (!globalUtils.addClientCapabilities(cookies['release_date'], req)) {
+    const build = cookies['release_date'] || config.default_client_build || 'october_5_2017';
+
+    if (!globalUtils.addClientCapabilities(build, req)) {
       logText('failed to add release_date client capabilities', 'error');
-      return res.redirect('/selector');
+
+      req.client_build_date = new Date('October 5 2017'); 
+      req.channel_types_are_ints = true;
     }
 
     next();
@@ -582,6 +586,7 @@ async function userMiddleware(req: Request, res: Response, next: NextFunction) {
     }
 
     req.user = user;
+    req.user_id = user.id;
     req.is_user_staff = req.user && (req.user.flags!! & (1 << 0)) === 1 << 0;
 
     if (req.user != null && req.is_user_staff && req.user.staff)
@@ -721,7 +726,7 @@ async function channelMiddleware(req: Request, res: Response, next: NextFunction
         req.guild = GuildService._formatResponse(rawChannel.guild);
 
         const sender = req.account;
-        const member = req.guild.members?.find((m: any) => m.id === sender.id);
+        const member = req.guild.members?.find((m) => m.user.id === sender.id);
 
         if (!member) {
           return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);

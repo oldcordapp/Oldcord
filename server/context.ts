@@ -1,8 +1,6 @@
 import type { GatewayServer } from "./gateway.ts";
 import type Emailer from "./helpers/emailer.ts";
-import type MediasoupSignalingDelegate from "./helpers/webrtc/MediasoupSignalingDelegate.ts";
 import type { MediaRelayServer } from "./mrserver.ts";
-import type { RtcServer } from "./rtcserver.ts";
 import type { Config } from "./types/config.ts";
 import type { Session } from "./types/session.ts";
 import type { MediaCodec, Room, VoiceState } from "./types/voice.ts";
@@ -16,9 +14,7 @@ interface AppContext {
     guild_voice_states: Map<string, VoiceState[]>;
     gatewayIntentMap: Map<string, Number>;
     udpServer: UdpServer | null;
-    rtcServer: RtcServer | null;
     using_media_relay: boolean;
-    mediaserver: MediasoupSignalingDelegate | null;
     emailer: Emailer | null;
     config: Config | null; 
     mrServer: MediaRelayServer | null;
@@ -36,9 +32,7 @@ const ctx: AppContext = {
     guild_voice_states: new Map(),
     gatewayIntentMap: new Map(),
     udpServer: null,
-    rtcServer: null,
     using_media_relay: false,
-    mediaserver: null,
     emailer: null,
     config: null,
     mrServer: null,

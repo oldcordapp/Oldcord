@@ -7,7 +7,6 @@ import type WebSocket from 'ws';
 import { GatewayOpcode, type GatewayHeartbeatPacket, type GatewayIdentifyPacket, type GatewayLazyFetchPacket, type GatewayMemberChunksPacket, type GatewayPresencePacket, type GatewayResumePacket, type GatewayVoiceStatePacket } from '../types/gateway.ts';
 import type { AccountSettings } from '../types/account.ts';
 import { ChannelType } from '../types/channel.ts';
-import permissions from '../helpers/permissions.ts';
 import type { User } from '../types/user.ts';
 import type { Member } from '../types/member.ts';
 import { logText } from '../helpers/logger.ts';
@@ -152,7 +151,7 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
     return socket.close(4003, 'Not authenticated');
   }
 
-  if (!guild_id && !channel_id) {
+  if (guild_id === null && channel_id === null) {
     if (current_guild && user_id) {
       const voiceStates = ctx.guild_voice_states.get(current_guild) || [];
       const index = voiceStates.findIndex((x) => x.user_id === user_id);
@@ -183,14 +182,18 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
   session.guild_id = guild_id ?? "0";
   session.channel_id = channel_id ?? "0";
 
+  console.log(session.channel_id);
+
   if (!current_guild) {
     current_guild = guild_id;
   }
 
+  console.log("current guild lol");
+
   if (session.channel_id != "0" && current_guild) {
     const channel = await prisma.channel.findUnique({
       where: {
-        id: socket.session.channel_id
+        id: session.channel_id
       },
       select: {
         type: true,
@@ -198,36 +201,11 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       }
     });
 
-    if (!channel || channel.type !== ChannelType.VOICE || !channel.user_limit) {
+    if (!channel || channel.type !== ChannelType.VOICE || channel.user_limit === undefined) {
+       console.log("current guild lol 2");
+
       return;
     }
-
-    if (channel.user_limit > 0 && user_id) {
-      const testRoom = ctx.rooms.filter((x) => x.room_id === `${guild_id}:${channel_id}`);
-      const permissionCheck = await permissions.hasChannelPermissionTo(
-        session.channel_id,
-        current_guild,
-        user_id,
-        'MOVE_MEMBERS',
-      );
-
-      if (testRoom.length >= channel.user_limit && !permissionCheck) {
-        return;
-      } //to-do: work on moving members into the channel
-    }
-  }
-
-  let room = ctx.rooms.find((x) => x.room_id === `${guild_id}:${channel_id}`);
-
-  if (!room && guild_id) {
-    ctx.rooms.push({
-      room_id: `${guild_id}:${channel_id}`,
-      participants: [],
-    });
-
-    ctx.guild_voice_states.set(guild_id, []);
-
-    room = ctx.rooms.find((x) => x.room_id === `${guild_id}:${channel_id}`);
   }
 
   if (current_guild) {
@@ -245,17 +223,12 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
     });
   }
 
-  if (room && user_id && guild_id && !room.participants.find((x) => x.user_id === user_id)) {
-    room.participants.push({
-      user_id: user_id,
-      ssrc: globalUtils.generateString(30),
-    });
-
-    const voiceStates = ctx.guild_voice_states.get(guild_id);
+  if (current_guild) {
+    const voiceStates = ctx.guild_voice_states.get(current_guild);
 
     if (voiceStates && !voiceStates.find((y) => y.user_id === socket.user_id)) {
       voiceStates.push({
-        user_id: user_id,
+        user_id: user_id!!,
         session_id: socket.session.id,
         guild_id: guild_id,
         channel_id: channel_id,
@@ -268,15 +241,37 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       });
     }
   }
-
+  
   if (!socket.inCall && current_guild) {
-    socket.session.dispatch('VOICE_SERVER_UPDATE', {
-      token: globalUtils.generateString(30),
-      guild_id: guild_id,
-      channel_id: channel_id,
-      endpoint: globalUtils.generateRTCServerURL(),
+    let url = globalUtils.generateRTCServerURL();
+    let token = globalUtils.generateString(30);
+
+    let output = await fetch(`http://${url}/internal/sync`, {
+      headers: {
+        'Authorization' : 'Bearer CHANGEME'
+      },
+      body: JSON.stringify({
+        user_id: socket.session.user.id,
+        server_id: guild_id,
+        session_id: session.id,
+        token: token
+      }),
+      method: "POST"
     });
+
+    if (output.ok) {
+      socket.session.dispatch('VOICE_SERVER_UPDATE', {
+        token: token,
+        guild_id: guild_id,
+        channel_id: channel_id,
+        endpoint: url,
+      });
+
     socket.inCall = true;
+
+    } else {
+      console.log("FAILED TO TELL RTC SERVER!!");
+    }
   }
 }
 
@@ -395,6 +390,89 @@ async function handleOp12GetGuildMembersAndPresences(socket: WebSocket, packet: 
   }
 }
 
+async function handleOp8GuildMemberChunks(socket: WebSocket, packet: any) {
+  if (!socket.session) return;
+
+  const { guild_id, query, limit, presences: includePresences } = packet.d;
+
+  const fixedGuild_id = Array.isArray(guild_id) ? guild_id[0] : guild_id;
+  
+  const isMember = await prisma.member.findFirst({
+    where: { guild_id: fixedGuild_id, user_id: socket.session.user.id }
+  });
+
+  if (!isMember) return;
+
+  const memberRows = await prisma.member.findMany({
+    where: {
+      guild_id: fixedGuild_id,
+      OR: [
+        { user: { username: { startsWith: query, mode: 'insensitive' } } },
+        { nick: { startsWith: query, mode: 'insensitive' } }
+      ]
+    },
+    take: limit || 10,
+    include: {
+      user: true
+    }
+  });
+
+  const members: any[] = [];
+  const presences: any[] = [];
+
+  memberRows.forEach((row) => {
+    const formattedMember = {
+      user: {
+        username: row.user.username,
+        discriminator: row.user.discriminator,
+        id: row.user.id,
+        avatar: row.user.avatar,
+        bot: row.user.bot,
+        flags: row.user.flags,
+        premium: true,
+      },
+      nick: row.nick,
+      roles: Array.isArray(row.roles) ? row.roles : [], 
+      joined_at: row.joined_at,
+      deaf: row.deaf || false,
+      mute: row.mute || false,
+    };
+
+    members.push(formattedMember);
+
+    if (includePresences) {
+      const userSessions = ctx.userSessions.get(row.user.id);
+      
+      let presence = {
+        user: { id: row.user.id },
+        status: 'offline',
+        activities: [],
+        game: null
+      } as any;
+
+      if (userSessions && userSessions.length > 0) {
+        const lastSession = userSessions[userSessions.length - 1];
+
+        presence = {
+          user: { id: row.user.id },
+          status: lastSession.presence.status || 'online',
+          activities: lastSession.presence.activities || [],
+          game: lastSession.presence.game
+        };
+      }
+      presences.push(presence);
+    }
+  });
+
+  socket.session.dispatch('GUILD_MEMBERS_CHUNK', {
+    guild_id: fixedGuild_id,
+    members: members,
+    chunk_index: 0,
+    chunk_count: 1,
+    presences: presences,
+  });
+}
+
 async function handleOp14GetGuildMemberChunks(socket: WebSocket, packet: GatewayMemberChunksPacket) {
   //This new rewritten code was mainly inspired by spacebar if you couldn't tell since their OP 14 is more stable than ours at the moment.
   //TO-DO: add support for shit like INSERT and whatnot (hell)
@@ -506,7 +584,8 @@ const gatewayHandlers: Record<number, GatewayHandler> = {
   [GatewayOpcode.PRESENCE_UPDATE]: handlePresence,
   [GatewayOpcode.VOICE_STATE_UPDATE]: handleVoiceState,
   [GatewayOpcode.LAZY_UPDATE]: handleOp12GetGuildMembersAndPresences,
-  [GatewayOpcode.REQUEST_GUILD_MEMBERS]: handleOp14GetGuildMemberChunks,
+  [GatewayOpcode.REQUEST_GUILD_MEMBERS]: handleOp8GuildMemberChunks,
+  [GatewayOpcode.GUILD_SUBSCRIPTIONS]: handleOp14GetGuildMemberChunks,
   [GatewayOpcode.RESUME]: handleResume,
 };
 

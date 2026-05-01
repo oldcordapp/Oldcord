@@ -44,7 +44,7 @@ const logText = (text: any, type: string) => {
   }
 
   if (type !== 'error') {
-    console.log(`[OLDCORDV3] <${type.toUpperCase()}>: ${text}`);
+    console.log(`[OLDCORDV4] <${type.toUpperCase()}>: ${text}`);
     return;
   }
 
@@ -57,7 +57,7 @@ const logText = (text: any, type: string) => {
   const functionname = stack.split('\n')[1].trim().split(' ')[1] || '<anonymous>';
   const message = text.toString();
 
-  console.error(`[OLDCORDV3] ERROR @ ${functionname} -> ${message}`);
+  console.error(`[OLDCORDV4] ERROR @ ${functionname} -> ${message}`);
 };
 
 export { logText };

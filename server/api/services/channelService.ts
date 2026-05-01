@@ -196,7 +196,7 @@ export const ChannelService = {
                     channel_id: channelId,
                     revoked: false // Standard behavior: don't show deleted/revoked invites
                 },
-                include: { guild: true, inviter: true } 
+                include: { guild: true, inviter: true, channel: true } 
             });
 
             return invites.map((i) => InviteService._formatInviteResponse(i));

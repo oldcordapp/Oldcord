@@ -55,13 +55,10 @@ import {
 } from './helpers/middlewares.js';
 const config = globalUtils.config;
 const app = express();
-import os from 'os';
 import { Readable } from 'stream';
 
 import emailer from './helpers/emailer.js';
-import MediasoupSignalingDelegate from './helpers/webrtc/MediasoupSignalingDelegate.js';
 import mrServer from './mrserver.ts';
-import rtcServer from './rtcserver.ts';
 import udpServer from './udpserver.ts';
 import { DatabaseService } from './api/services/databaseService.ts';
 import type { Session } from './types/session.ts';
@@ -92,12 +89,7 @@ ctx.gateway = gateway;
 ctx.slowmodeCache = new Map();
 ctx.gatewayIntentMap = new Map();
 ctx.udpServer = udpServer;
-ctx.rtcServer = rtcServer;
 ctx.using_media_relay = globalUtils.config?.mr_server.enabled;
-
-if (!ctx.using_media_relay) {
-  ctx.mediaserver = new MediasoupSignalingDelegate();
-}
 
 if (globalUtils.config.email_config.enabled) {
   ctx.emailer = new emailer(
@@ -119,7 +111,7 @@ ctx.MEDIA_CODECS = [
       useinbandfec: 1,
       usedtx: 1,
     },
-    preferredPayloadType: 111,
+    preferredPayloadType: 109,
   },
   {
     kind: 'video',
@@ -131,7 +123,7 @@ ctx.MEDIA_CODECS = [
       { type: 'nack', parameter: 'pli' },
       { type: 'goog-remb' },
     ],
-    preferredPayloadType: 101,
+    preferredPayloadType: 120,
   },
 ];
 
@@ -188,56 +180,12 @@ if (config.port == config.ws_port) {
 
 gateway.ready(gatewayServer, config.debug_logs.gateway ?? true);
 
-//https://stackoverflow.com/a/15075395
-function getIPAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const devName in interfaces) {
-    const iface = interfaces[devName];
-
-    if (iface) {
-      for (let i = 0; i < iface.length; i++) {
-        const alias = iface[i];
-
-        if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal)
-          return alias.address;
-      }
-    }
-  }
-  return '0.0.0.0';
-}
-
 (async () => {
-  let ip_address = getIPAddress();
-
-  if (config.media_server_public_ip) {
-    const try_get_ip = await fetch('https://checkip.amazonaws.com');
-
-    ip_address = await try_get_ip.text();
-  }
-
-  let rtcHttpServer: Server<typeof IncomingMessage, typeof ServerResponse> | null = null;
-
-  if (certificates) {
-    rtcHttpServer = https.createServer(certificates);
-  } else {
-    rtcHttpServer = createServer();
-  }
-
-  rtcHttpServer.listen(config.signaling_server_port);
-
   ctx.udpServer!.start(config.udp_server_port, config.debug_logs.udp ?? true);
-  ctx.rtcServer!.start(
-    rtcHttpServer,
-    config.debug_logs.rtc ?? true,
-  );
 
   if (ctx.using_media_relay) {
     ctx.mrServer = mrServer;
     ctx.mrServer.start(config.debug_logs.mr ?? true);
-  }
-
-  if (!ctx.using_media_relay) {
-    await ctx.mediaserver!.start(ip_address, 5000, 6000, config.debug_logs.media ?? true);
   }
 })();
 

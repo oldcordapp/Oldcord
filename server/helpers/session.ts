@@ -164,8 +164,7 @@ class session implements Session {
       this.presence.activities = game ? [game] : [];
       this.presence.game = game;
 
-      const broadcastStatus: string =
-        status.toLowerCase() === 'invisible' ? 'offline' : status.toLowerCase(); //this works i think
+      const broadcastStatus = status.toLowerCase() === 'invisible' ? 'offline' : status.toLowerCase(); //this works i think
 
       await this.dispatchPresenceUpdate(broadcastStatus);
     } catch (error) {
@@ -279,7 +278,9 @@ class session implements Session {
     }); 
 
     for(const guild of guilds) {
-      const guildSpecificPresence: Presence = {
+      const member = guild.members.find(x => x.user_id === this.user.id);
+
+      const guildSpecificPresence = {
         status: broadcastStatus,
         game: this.presence.game || null,
         activities: this.presence.activities || [],
@@ -290,7 +291,8 @@ class session implements Session {
           avatar: this.user.avatar,
           discriminator: this.user.discriminator,
           bot: this.user.bot
-        }
+        },
+        roles: member ? member.roles : []
       };
 
       await dispatcher.dispatchEventInGuild(guild.id, 'PRESENCE_UPDATE', guildSpecificPresence);
@@ -449,38 +451,29 @@ class session implements Session {
       return;
     }
 
-    const merged_members: Member[] = [];
+    const merged_members: Member[][] = []; 
+    const allUsers = new Map<string, any>();
 
     try {
       const month = this.socket.client_build_date.getMonth();
       const year = this.socket.client_build_date.getFullYear();
+      
       const guilds_rows = await prisma.guild.findMany({
         where: {
           members: { some: { user_id: this.user.id } }
         },
         include: {
-          members: { where: { user_id: this.user.id } },
+          members: { 
+              where: { user_id: this.user.id },
+              include: { user: true }
+          },
+          roles: true,
           channels: true
         }
       });
 
       let guilds = guilds_rows.map((guild_row) => {
-        const formatted = GuildService._formatResponse(guild_row);
-        const hasEveryone = formatted.roles!.some(r => r.id === formatted.id);
-
-        if (!hasEveryone) {
-          formatted.roles!.push({
-            id: formatted.id,
-            name: "@everyone",
-            permissions: 104186945,
-            position: 0,
-            color: 0,
-            hoist: false,
-            mentionable: false
-          });
-        }
-
-        return formatted;
+        return GuildService._formatResponse(guild_row);
       });
 
       if (this.user.bot) {
@@ -516,15 +509,20 @@ class session implements Session {
           });
 
           const formattedMembers = guildMembers.map((m) => {
+            const miniUser = globalUtils.miniUserObject(m.user as User);
+            allUsers.set(miniUser.id, miniUser);
+            
             return {
-              user: globalUtils.miniUserObject(m.user as User),
-              roles: m.roles,
-              nick: m.nick,
+              user: miniUser,
+              roles: Array.isArray(m.roles) ? m.roles : [],
+              nick: m.nick || null,
               joined_at: m.joined_at,
-              deaf: m.deaf,
-              mute: m.mute
+              deaf: m.deaf || false,
+              mute: m.mute || false
             } as Member;
-          }) as Member[];
+          });
+
+          merged_members.push(formattedMembers);
 
           if (guild.region != 'everything' && !globalUtils.canUseServer(year, guild.region!!)) {
             let msgid = `12792182114301050${Math.round(Math.random() * 100).toString()}`;
@@ -559,9 +557,18 @@ class session implements Session {
             guild.name = `${globalUtils.serverRegionToYear(guild.region!!)} ONLY! CHANGE BUILD`;
             guild.owner_id = '643945264868098049';
 
-            merged_members.push(...formattedMembers);
-
-            guild.properties = structuredClone(guild);
+            guild.properties = {
+              name: guild.name,
+              icon: guild.icon,
+              owner_id: guild.owner_id,
+              banner: guild.banner,
+              splash: guild.splash,
+              preferred_locale: "en-US",
+              afk_channel_id: guild.afk_channel_id,
+              afk_timeout: guild.afk_timeout,
+              system_channel_id: guild.system_channel_id,
+              verification_level: guild.verification_level
+            }
 
             // v9 things
             guild.guild_scheduled_events = [];
@@ -588,8 +595,6 @@ class session implements Session {
               status: presence.status,
             });
           }
-
-          merged_members.push(...formattedMembers);
 
           for (let channel of guild.channels!!) {
             if ((year === 2017 && month < 9) || year < 2017) {
@@ -645,7 +650,18 @@ class session implements Session {
             );
           }
 
-          guild.properties = structuredClone(guild);
+          guild.properties = {
+            name: guild.name,
+            icon: guild.icon,
+            owner_id: guild.owner_id,
+            banner: guild.banner,
+            splash: guild.splash,
+            preferred_locale: "en-US",
+            afk_channel_id: guild.afk_channel_id,
+            afk_timeout: guild.afk_timeout,
+            system_channel_id: guild.system_channel_id,
+            verification_level: guild.verification_level
+          }
 
           // v9 things
           guild.guild_scheduled_events = [];
@@ -724,7 +740,7 @@ class session implements Session {
       const relationships = await RelationshipService.getRelationshipsByUserId(this.user.id);
 
       this.application = await OAuthService.getApplicationById(this.user.id);
-
+      
       this.readyUp({
         v: this.apiVersion,
         guilds: guilds ?? [],
@@ -775,7 +791,7 @@ class session implements Session {
         merged_members: merged_members,
         users: Array.from(users),
         notification_settings: { flags: null },
-        game_relationships: [{}],
+        game_relationships: [],
         application: this.application,
         _trace: [JSON.stringify(['oldcord-v4', { micros: 0, calls: ['oldcord-v4'] }])],
       });

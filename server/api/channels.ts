@@ -26,6 +26,7 @@ import ctx from '../context.ts';
 import permissions from '../helpers/permissions.ts';
 import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType } from '../types/auditlog.ts';
+import type { WebSocket } from "ws";
 
 const router = Router({ mergeParams: true });
 
@@ -37,7 +38,7 @@ router.get(
   async (req: Request, res: Response) => {
     return res
       .status(200)
-      .json(globalUtils.personalizeChannelObject(req, req.channel, req.account!!)); //req.account is a dirty hack ok
+      .json(globalUtils.personalizeChannelObject(req, req.channel, req.account)); //req.account is a dirty hack ok
   },
 );
 
@@ -631,7 +632,7 @@ router.delete(
       
       const auditChanges = [
           { key: 'allow', old_value: deletedOverwrite.allow },
-          { key: 'deny', old_value: deletedOverwrite.deny },
+          { key: 'deny', old_value: deletedOverwrite.deny  },
           { key: 'type', old_value: typeInt },
           { key: 'id', old_value: deletedOverwrite.id }
       ];
@@ -908,22 +909,22 @@ router.delete(
         });
 
         const auditChanges = [
-          { key: 'name', new_value: channel.name },
-          { key: 'type', new_value: channel.type },
-          { key: 'parent_id', new_value: channel.parent_id }
+          { key: 'name', old_value: channel.name },
+          { key: 'type', old_value: channel.type },
+          { key: 'parent_id', old_value: channel.parent_id }
         ];
 
         if (channel.type === ChannelType.TEXT) {
-          auditChanges.push({ key: 'topic', new_value: channel.topic ?? '' });
+          auditChanges.push({ key: 'topic', old_value: channel.topic ?? '' });
 
           if (channel.rate_limit_per_user !== undefined) {
-            auditChanges.push({ key: 'rate_limit_per_user', new_value: channel.rate_limit_per_user });
+            auditChanges.push({ key: 'rate_limit_per_user', old_value: channel.rate_limit_per_user });
           }
         }
 
         if (channel.type === ChannelType.VOICE) {
-          auditChanges.push({ key: 'bitrate', new_value: channel.bitrate ?? 64000 });
-          auditChanges.push({ key: 'user_limit', new_value: channel.user_limit ?? 0 });
+          auditChanges.push({ key: 'bitrate', old_value: channel.bitrate ?? 64000 });
+          auditChanges.push({ key: 'user_limit', old_value: channel.user_limit ?? 0 });
         }
         
         await AuditLogService.insertEntry(

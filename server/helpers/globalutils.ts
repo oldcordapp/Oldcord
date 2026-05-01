@@ -19,6 +19,8 @@ import ctx from '../context.ts';
 import { RelationshipType } from '../types/relationship.ts';
 import { MessageService } from '../api/services/messageService.ts';
 import type { Presence } from '../types/presence.ts';
+import type { WebSocket } from "ws";
+
 
 const configPath = './config.json';
 
@@ -284,7 +286,7 @@ const globalUtils = {
     return result;
   },
   getUserPresence: (member: any): Presence => {
-    const userId = String(member.user.id || member.user_id);
+    const userId = member.user?.id || member.user_id;
     const uSessions = ctx.userSessions.get(userId);
     const activeSessions = uSessions
       ? Array.from(uSessions).filter((s: any) => !s.dead && s.presence)
@@ -387,16 +389,16 @@ const globalUtils = {
 
     const parts = client_build ? client_build.split('_') : null;
 
-    if (parts!.length < 3) {
+    if (!parts || parts.length < 3) {
       obj.client_build = '';
       obj.client_build_date = new Date();
       obj.channel_types_are_ints = false;
       return false;
     }
 
-    const month = parts![0];
-    const day = parts![1];
-    const year = parts![2];
+    const month = parts[0];
+    const day = parts[1];
+    const year = parts[2];
     const date = new Date(`${month} ${day} ${year}`);
     const plural_recipients = (date.getFullYear() == 2016 && date.getMonth() >= 6) || date.getFullYear() >= 2017;
 
@@ -1011,7 +1013,7 @@ const globalUtils = {
     return msg;
   },
   //probs move this to use request or socket
-  personalizeChannelObject: (req: any, channel: Channel, user?: User | null): Channel | null => {
+  personalizeChannelObject: (req: Request | WebSocket, channel: Channel, user?: User | null): Channel | null => {
     if (!req) {
       return channel;
     }
@@ -1025,8 +1027,8 @@ const globalUtils = {
     Object.assign(clone, channel);
 
     if (channel.recipients) {
-      if (req.user || user) {
-          clone.recipients = channel.recipients.filter((r) => r.id != (req.user!! || user).id);
+      if (req.user_id || user) {
+          clone.recipients = channel.recipients.filter((r) => r.id != (req.user_id || user?.id));
       }
     }
 
@@ -1037,8 +1039,13 @@ const globalUtils = {
       delete clone.recipients;
     }
 
-    if (!req.channel_types_are_ints)
-      clone.type = globalUtils.channelTypeToString(parseInt(channel.type as string));
+    const useInts = req.channel_types_are_ints ?? true;
+
+    if (!useInts) {
+        clone.type = globalUtils.channelTypeToString(parseInt(channel.type as string));
+    } else {
+        clone.type = parseInt(channel.type as string);
+    }
 
     return clone;
   },

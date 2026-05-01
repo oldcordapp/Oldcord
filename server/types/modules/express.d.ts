@@ -15,6 +15,10 @@ declare global {
   namespace Express {
     interface Request {
       client_build: string;
+      client_build_date: Date;
+      plural_recipients?: boolean;
+      channel_types_are_ints?: boolean;
+      isThirdPartyOrMobile?: boolean;
       account: Account;
       member: Member;
       role: Role;
@@ -25,7 +29,6 @@ declare global {
       rateLimit: any;
       subscription: any;
       invite: Invite;
-      client_build_date: Date;
       staff_details: StaffDetails; 
       user_staff_details: StaffDetails;
       channel_types_are_ints: boolean;
@@ -36,6 +39,7 @@ declare global {
       guild: Guild;
       recipient: User;
       user: Account; //Would use User here but Accounts have relationships attached to them, which we may need in further logic.
+      user_id: string;
       channel: Channel;
       webhook: Webhook;
       message: Message;

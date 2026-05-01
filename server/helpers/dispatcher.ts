@@ -1,4 +1,3 @@
-import type { Guild } from '../types/guild.ts';
 import ctx from '../context.ts';
 import { prisma } from '../prisma.ts';
 import { handleMembersSync } from './lazyRequest.js';
@@ -6,6 +5,7 @@ import { logText } from './logger.ts';
 import permissions from './permissions.ts';
 import type { Channel } from '../types/channel.ts';
 import { GuildService } from '../api/services/guildService.ts';
+import type { Session } from '../types/session.ts';
 
 const dispatcher = {
   dispatchEventTo: (user_id: string, type: string, payload: any): boolean => {
@@ -111,12 +111,23 @@ const dispatcher = {
     });
 
     if (!guild) return false;
-    
+
     const activeSessions = Array.from(ctx.userSessions.values()).flat();
 
-    const updatePromises = activeSessions.map(async (session: any) => {
-      const guildInSession = session.guilds?.find((g: Guild) => g.id === guild.id);
-      if (!guildInSession) return;
+    const updatePromises = activeSessions.map(async (session: Session) => {
+      const member = await prisma.member.findUnique({
+        where: {
+          guild_id_user_id: {
+            user_id: session.user.id,
+            guild_id: guild.id,
+          },
+        },
+        select: { user_id: true }
+      });
+
+      const isInGuild = !!member;
+
+      if (!isInGuild) return;
 
       let finalPayload = payload;
       let finalType = typeOverride || type;
@@ -144,12 +155,11 @@ const dispatcher = {
           finalPayload.roles = member.roles;
         }
 
-        const isLegacyClient =
-          (session.socket && session.socket.client_build_date.getFullYear() === 2015) ||
-          (session.socket &&
+        const isLegacyClient = (session.socket && session.socket.client_build_date && session.socket.client_build_date.getFullYear() === 2015) ||
+          (session.socket && session.socket.client_build_date && 
             session.socket.client_build_date.getFullYear() === 2016 &&
             session.socket.client_build_date.getMonth() < 8) ||
-          (session.socket &&
+          (session.socket && session.socket.client_build_date && 
             session.socket.client_build_date.getFullYear() === 2016 &&
             session.socket.client_build_date.getMonth() === 8 &&
             session.socket.client_build_date.getDate() < 26);

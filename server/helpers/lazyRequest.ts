@@ -70,7 +70,7 @@ const lazyRequest = {
 
     return murmur3(perms.sort().join(','), 0).toString();
   },
-  computeMemberList: (guild: Guild, channel: Channel, ranges: [number, number], bypassPerms = false): any => {
+  computeMemberList: async (guild: Guild, channel: Channel, ranges: [number, number], bypassPerms = false): Promise<any> => {
     function arrayPartition<T>(array: T[], callback: (elem: T) => boolean): [T[], T[]] {
       return array.reduce(
         ([pass, fail], elem): [T[], T[]] => {
@@ -88,19 +88,19 @@ const lazyRequest = {
       }
 
       return {
-        member: {
-          ...member,
-          presence: p,
-        },
+        member: member,
+        presence: p,
       };
     }
 
-    const visibleMembers = guild.members?.filter((m) => {
-      return (
-        permissions.hasChannelPermissionTo(channel.id, guild.id, m.user.id, 'READ_MESSAGES') ||
-        bypassPerms
-      );
-    });
+    const permissionPromises = guild.members?.map(async (m) => {
+      const hasPerm = await permissions.hasChannelPermissionTo(channel.id, guild.id, m.user.id, 'READ_MESSAGES');
+      return { member: m, canSee: hasPerm || bypassPerms };
+    }) || [];
+
+    const results = await Promise.all(permissionPromises);
+
+    const visibleMembers = results.filter(r => r.canSee).map(r => r.member);
 
     const sortedMembers = [...visibleMembers!!].sort((a, b) => {
       const pA = globalUtils.getUserPresence(a);
@@ -114,7 +114,9 @@ const lazyRequest = {
     const allItems: any = [];
     const groups: any = [];
     const placedUserIds = new Set();
+
     let remainingMembers = [...sortedMembers];
+
     const hoistedRoles = (guild.roles || [])
       .filter((r) => r.hoist)
       .sort((a, b) => b.position - a.position);
@@ -168,6 +170,7 @@ const lazyRequest = {
       allItems.push({ group: { id: 'offline', count: offlineFinal.length } });
 
       offlineFinal.forEach((m) => {
+        
         allItems.push(formatMemberItem(m, 'offline'));
         placedUserIds.add(m.user.id);
       });
@@ -203,17 +206,25 @@ const lazyRequest = {
       }
     }
   },
-  handleMembersSync: (session: Session, channel: Channel, guild: Guild, subData: any) => {
-    if (!subData || !subData.ranges) return;
+  handleMembersSync: async (session: Session, channel: Channel, guild: Guild, subData: any) => {
+    if (!subData || !subData.ranges || !guild.roles) {
+      return;
+    }
+
+    const everyoneRole = guild.roles?.find((x: Role) => x.id === guild.id);
+
+    if (!everyoneRole) {
+      return;
+    }
 
     const list_id = lazyRequest.getListId(
       session,
       guild,
       channel,
-      guild.roles?.find((x: Role) => x.id === guild.id)!!,
+      everyoneRole,
     );
 
-    const { ops, groups, items, count } = lazyRequest.computeMemberList(
+    const { ops, groups, items, count } = await lazyRequest.computeMemberList(
       guild,
       channel,
       subData.ranges,
@@ -247,7 +258,7 @@ const lazyRequest = {
         const guildSubs = otherSession.subscriptions[guild.id];
 
         if (!guildSubs) return null;
-
+  
         for (const [channelId, subData] of Object.entries(guildSubs) as any[][]) {
           const channel = guild.channels?.find((x) => x.id === channelId);
           if (!channel) continue;
@@ -256,7 +267,8 @@ const lazyRequest = {
             items: newItems,
             groups,
             count,
-          } = lazyRequest.computeMemberList(guild, channel, subData.ranges || [[0, 99]]);
+          } = await lazyRequest.computeMemberList(guild, channel, subData.ranges || [[0, 99]]);
+
           const listId = lazyRequest.getListId(
             otherSession,
             guild,
@@ -336,6 +348,8 @@ const lazyRequest = {
           }
         }
 
+
+
         return null;
       },
       false,
@@ -374,13 +388,13 @@ const lazyRequest = {
           if (presence) {
             socket.session.dispatch('PRESENCE_UPDATE', {
               ...presence,
-              guild_id: guild.id,
+              guild_id: guild.id
             });
           }
         });
       }
 
-      lazyRequest.handleMembersSync(socket.session, channel, guild, {
+      await lazyRequest.handleMembersSync(socket.session, channel, guild, {
         ranges: ranges,
       });
     }

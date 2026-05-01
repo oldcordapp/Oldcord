@@ -222,7 +222,7 @@ model Role {
   permissions Int     @default(104193089)
   position    Int     @default(0)
 
-  guild Guild @relation(fields: [guild_id], references: [id])
+  guild    Guild  @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@map("roles")
 }
@@ -236,8 +236,8 @@ model Member {
   deaf      Boolean @default(false)
   mute      Boolean @default(false)
 
-  user User @relation(fields: [user_id], references: [id])
-  guild Guild @relation(fields: [guild_id], references: [id])
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  guild Guild @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@id([guild_id, user_id])
   @@map("members")
@@ -255,9 +255,9 @@ model Invite {
   maxAge     Int?     @default(0)
   xkcdpass   Boolean? @default(false)
   createdAt  String?
-  guild      Guild    @relation(fields: [guild_id], references: [id])
-  channel    Channel? @relation(fields: [channel_id], references: [id])
-  inviter    User?    @relation("UserInvites", fields: [inviter_id], references: [id])
+  guild      Guild    @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  channel    Channel? @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  inviter    User?    @relation("UserInvites", fields: [inviter_id], references: [id], onDelete: SetNull)
 
   @@map("invites")
 }
@@ -270,7 +270,7 @@ model Message {
   author_id        String?
   content          String?
   edited_timestamp String?
-  author           User?        @relation(fields: [author_id], references: [id])
+  author           User?        @relation(fields: [author_id], references: [id], onDelete: Cascade)
   mention_everyone Boolean?     @default(false)
   nonce            String?
   timestamp        String?
@@ -337,7 +337,7 @@ model Webhook {
   avatar     String?
   name       String? @default("Captain Hook")
   creator_id String
-  creator    User    @relation(fields: [creator_id], references: [id])
+  creator    User    @relation(fields: [creator_id], references: [id], onDelete: Cascade)
 
   @@map("webhooks")
 }
@@ -380,7 +380,7 @@ model MfaLoginTicket {
   user_id    String
   mfa_ticket String @id
 
-  user User @relation(fields: [user_id], references: [id])
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("mfa_login_tickets")
 }

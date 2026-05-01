@@ -333,7 +333,12 @@ export const AccountService = {
                 }),
                 prisma.bot.findMany({
                     where: { id: { in: standardIds } },
-                    select: PUBLIC_USER_SELECT
+                    select: {
+                        id: true,
+                        username: true,
+                        discriminator: true,
+                        avatar: true
+                    }
                 }),
                 prisma.webhook.findMany({
                     where: { id: { in: webhookIds } },
