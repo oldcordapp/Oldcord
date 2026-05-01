@@ -714,14 +714,14 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const guy = req.account;
-      const message = req.message;
+      const messageid = req.params.messageid as string;
       const channel = req.channel;
       const manual = req.body.manual === true;
 
       const success = await MessageService.acknowledgeMessage(
           guy.id,
           channel.id,
-          message.id,
+          messageid,
           0
       );
 
@@ -729,11 +729,11 @@ router.post(
 
       await dispatcher.dispatchEventTo(guy.id, 'MESSAGE_ACK', {
         channel_id: channel.id,
-        message_id: message.id,
+        message_id: messageid,
         manual: manual, //This is for if someone clicks mark as read
       });
 
-      const ackToken = globalUtils.generateAckToken(guy.id, message.id);
+      const ackToken = globalUtils.generateAckToken(guy.id, messageid);
 
       return res.status(200).json({
         token: ackToken
