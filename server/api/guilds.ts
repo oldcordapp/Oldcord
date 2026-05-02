@@ -299,6 +299,7 @@ router.get(
       const before_id = req.query.max_id as string;
       const after_id = req.query.min_id as string;
       const mentions = req.query.mentions as string; //user_id
+      const has = req.query.has as string[];
       const include_nsfw = req.query.include_nsfw && req.query.include_nsfw === 'true';
       //const has = req.query.has; //fuck this i cant be fucked today
       //need to do during too
@@ -314,6 +315,7 @@ router.get(
         after_id,
         limit,
         offset,
+        has
       );
 
       const ret_results: any[] = [];

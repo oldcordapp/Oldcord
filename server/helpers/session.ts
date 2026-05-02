@@ -296,7 +296,7 @@ class session implements Session {
       };
 
       await dispatcher.dispatchEventInGuild(guild.id, 'PRESENCE_UPDATE', guildSpecificPresence);
-      await lazyRequest.syncMemberList(GuildService._formatResponse(guild), this.user.id);
+      await lazyRequest.syncMemberList(guild.id, this.user.id);
     }
   }
   async dispatchSelfUpdate() {

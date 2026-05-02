@@ -1,7 +1,7 @@
 import { json, Router } from 'express';
 import ffmpeg from 'fluent-ffmpeg';
 const { ffprobe } = ffmpeg;
-import { mkdir, writeFile } from 'fs';
+import { mkdir, writeFile } from 'fs/promises';
 import { Jimp } from 'jimp';
 import multer from 'multer';
 import { extname, join } from 'path';
@@ -66,10 +66,27 @@ router.get(
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const { around, before, after } = req.query as Record<string, string>;
 
-      const includeReactions =
-        (req.guild && !req.guild.exclusions?.includes('reactions')) ||
-        channel.type === ChannelType.DM ||
-        channel.type === ChannelType.GROUPDM;
+      let includeReactions = false;
+      let guild_name: string | null = null;
+
+      if (channel.guild_id) {
+        const basic_guild = await prisma.guild.findFirst({
+          where: {
+            id: channel.guild_id
+          },
+          select: {
+            exclusions: true,
+            name: true
+          }
+        })
+
+        if (basic_guild) {
+           includeReactions = (basic_guild.exclusions as unknown as any[]).includes('reactions');
+           guild_name = basic_guild.name;
+        }
+      }
+
+      includeReactions = includeReactions === false ? (channel.type === ChannelType.DM || channel.type === ChannelType.GROUPDM) : includeReactions;
 
       let messages: Message[];
 
@@ -87,7 +104,7 @@ router.get(
       }
 
       const personalized = messages.map((m) =>
-        globalUtils.personalizeMessageObject(m, req.guild, req.client_build_date)
+        globalUtils.personalizeMessageObject(m, guild_name ?? undefined, req.client_build_date)
       );
 
       return res.status(200).json(personalized);
@@ -292,19 +309,14 @@ async function processAttachments(files: Express.Multer.File[], channelId: strin
     const attachmentDir = join('.', 'www_dynamic', 'attachments', channelId, fileId);
     const filePath = join(attachmentDir, sanitizedName);
 
-    await mkdir(attachmentDir,  {
-      recursive: true
-    }, (error) => {
-      logText(error, 'error');
-      
-      throw { status: 500, message: "Internal Server Error" }
-    });
+    try {
+      await mkdir(attachmentDir, { recursive: true });
 
-    await writeFile(filePath, file.buffer, (error) => {
+      await writeFile(filePath, file.buffer);
+    } catch (error) {
       logText(error, 'error');
-      
-      throw { status: 500, message: "Internal Server Error" }
-    });
+      throw { status: 500, message: "Internal Server Error" };
+    }
 
     const fileDetail = {
       id: fileId,
@@ -644,7 +656,7 @@ router.patch(
       else
         await dispatcher.dispatchEventInChannel(req.guild.id, channel.id, 'MESSAGE_UPDATE', update);
 
-      return res.status(204).send();
+      return res.status(200).json(update);
     } catch (error) {
       logText(error, 'error');
 

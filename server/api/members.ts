@@ -15,6 +15,9 @@ import ctx from '../context.ts';
 import type { Guild } from '../types/guild.ts';
 import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType, type AuditLogChange } from '../types/auditlog.ts';
+import { prisma } from '../prisma.ts';
+import { PUBLIC_USER_SELECT } from './services/accountService.ts';
+import type { Role } from '../types/role.ts';
 
 interface ErrorReponse {
   code: number;
@@ -79,7 +82,12 @@ router.delete(
   },
 );
 
-async function updateMember(guild: Guild, member: Member, roles?: (string | { id: string })[], nick?: string) {
+async function updateMember(guild_id: string, member: {
+  user_id: string,
+  roles: Role[] | string[],
+  nick: string | null,
+  user: User
+}, roles?: (string | { id: string })[], nick?: string) {
   let rolesChanged = false;
   let nickChanged = false;
 
@@ -92,7 +100,7 @@ async function updateMember(guild: Guild, member: Member, roles?: (string | { id
     if (JSON.stringify(currentRoles) !== JSON.stringify(incomingRoles)) {
       rolesChanged = true;
 
-      const success = await RoleService.setRoles(guild.id, newRoles, member.user.id);
+      const success = await RoleService.setRoles(guild_id, newRoles, member.user_id);
 
       if (!success) {
         return errors.response_500.INTERNAL_SERVER_ERROR as ErrorReponse;
@@ -124,7 +132,7 @@ async function updateMember(guild: Guild, member: Member, roles?: (string | { id
 
     nickChanged = true;
 
-    const success = await GuildService.updateGuildMemberNick(guild.id, member.user.id, nick);
+    const success = await GuildService.updateGuildMemberNick(guild_id, member.user_id, nick);
 
     if (!success) {
       return errors.response_500.INTERNAL_SERVER_ERROR as ErrorReponse;
@@ -136,19 +144,19 @@ async function updateMember(guild: Guild, member: Member, roles?: (string | { id
   if (rolesChanged || nickChanged) {
     const updatePayload = {
       roles: member.roles,
-      user: globalUtils.miniUserObject(member.user!!),
-      guild_id: guild.id,
+      user: globalUtils.miniUserObject(member.user),
+      guild_id: guild_id,
       nick: member.nick,
     };
 
-    await dispatcher.dispatchEventInGuild(guild.id, 'GUILD_MEMBER_UPDATE', updatePayload);
-    await lazyRequest.syncMemberList(guild, member.user.id);
+    await dispatcher.dispatchEventInGuild(guild_id, 'GUILD_MEMBER_UPDATE', updatePayload);
+    await lazyRequest.syncMemberList(guild_id, member.user.id);
   }
 
   return {
     roles: member.roles,
-    user: globalUtils.miniUserObject(member.user!!),
-    guild_id: guild.id,
+    user: globalUtils.miniUserObject(member.user),
+    guild_id: guild_id,
     nick: member.nick,
   };
 }
@@ -272,7 +280,12 @@ router.patch(
         );
       }
 
-      const newMember = await updateMember(guild, member, req.body.roles, req.body.nick);
+      const newMember = await updateMember(guild.id, {
+        user: globalUtils.miniUserObject(member.user as User),
+        user_id: member.user.id,
+        roles: member.roles,
+        nick: member.nick ?? null
+      }, req.body.roles, req.body.nick);
 
       if ("code" in newMember) {
         return res.status(newMember.code).json(newMember);
@@ -304,13 +317,37 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const account = req.account;
-      const member = req.guild.members?.find((y) => y.user.id == account.id); 
+      const member = await prisma.member.findUnique({
+        where: {
+          guild_id_user_id: {
+            guild_id: req.params.guildid as string,
+            user_id: account.id
+          }
+        },
+        select: {
+          user: {
+            select: PUBLIC_USER_SELECT
+          },
+          nick: true,
+          roles: true,
+          guild: {
+            select: {
+              id: true
+            }
+          }
+        }
+      });
 
       if (!member) {
         return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
       }
 
-      const newMember = await updateMember(req.guild, member, undefined, req.body.nick);
+      const newMember = await updateMember(member.guild.id, {
+        user: globalUtils.miniUserObject(member.user as User),
+        user_id: member.user.id,
+        roles: member.roles as unknown as string[],
+        nick: member.nick ?? null
+      }, undefined, req.body.nick);
 
       if ("code" in newMember) {
         return res.status(newMember.code).json(newMember);

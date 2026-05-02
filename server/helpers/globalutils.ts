@@ -971,7 +971,7 @@ const globalUtils = {
         return 'text';
     }
   },
-  personalizeMessageObject: (msg: any, guild: any, client_build_date: any): any => {
+  personalizeMessageObject: (msg: any, guild_name: string | undefined, client_build_date: Date | undefined): any => {
     const boostLvlConversion = {
       9: 1,
       10: 2,
@@ -979,15 +979,15 @@ const globalUtils = {
     } as Record<number, number>;
 
     if (msg.id === '643945264868098049') {
-      msg.content = msg.content.replace('[YEAR]', client_build_date.getFullYear());
+      msg.content = msg.content.replace('[YEAR]', client_build_date?.getFullYear());
       msg.author.bot = true;
     }
 
-    if (client_build_date.getFullYear() < 2019 && msg.type >= 8 && msg.type != 12 && guild) {
+    if (client_build_date && client_build_date.getFullYear() < 2019 && msg.type >= 8 && msg.type != 12 && guild_name) {
       let levelReachedText = '';
 
       if (boostLvlConversion[msg.type]) {
-        levelReachedText = `${guild.name} has reached Level ${boostLvlConversion[msg.type]}!`;
+        levelReachedText = `${guild_name} has reached Level ${boostLvlConversion[msg.type]}!`;
       }
 
       msg.content = `${msg.author.username} just boosted the server! ${levelReachedText}`;
@@ -1001,7 +1001,7 @@ const globalUtils = {
       };
     }
 
-    if (client_build_date <= new Date(2017, 0, 23) && msg.type === 7 && guild) {
+    if (client_build_date && client_build_date <= new Date(2017, 0, 23) && msg.type === 7 && guild_name) {
       msg.content = `${msg.author.username} has joined the server!`;
       msg.type = 0;
       msg.author = {

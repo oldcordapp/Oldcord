@@ -30,7 +30,7 @@ model User {
   bot                   Boolean?           @default(false)
   flags                 Int?               @default(0)
   email_token           String?
-  last_seen_at          String?             // Mainly used for guild pruning. This will only be set on IDENTIFY and RESUME, not tracked elsewhere.
+  last_seen_at          String? // Mainly used for guild pruning. This will only be set on IDENTIFY and RESUME, not tracked elsewhere.
   private_channels      Json?              @default("[]")
   settings              Json?              @default("{\"show_current_game\":false,\"inline_attachment_media\":true,\"inline_embed_media\":true,\"render_embeds\":true,\"render_reactions\":true,\"sync\":true,\"theme\":\"dark\",\"enable_tts_command\":true,\"message_display_compact\":false,\"locale\":\"en-US\",\"convert_emoticons\":true,\"restricted_guilds\":[],\"allow_email_friend_request\":false,\"friend_source_flags\":{\"all\":true},\"developer_mode\":true,\"guild_positions\":[],\"detect_platform_accounts\":false,\"status\":\"online\"}")
   guild_settings        Json?              @default("[]")
@@ -139,7 +139,8 @@ model Channel {
   permission_overwrites Json?    @default("[]")
   name                  String?
   nsfw                  Boolean? @default(false)
-  guild                 Guild? @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  guild                 Guild?   @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  messages              Message[]
   rate_limit_per_user   Int?     @default(0)
   user_limit            Int?     @default(0)
   bitrate               Int?     @default(64000)
@@ -151,7 +152,7 @@ model Channel {
 }
 
 model Guild {
-  id                            String   @id
+  id                            String    @id
   name                          String?
   icon                          String?
   splash                        String?
@@ -160,25 +161,25 @@ model Guild {
   owner_id                      String
   afk_channel_id                String?
   system_channel_id             String?
-  afk_timeout                   Int?     @default(300)
+  afk_timeout                   Int?      @default(300)
   creation_date                 String?
-  exclusions                    Json?    @default("[]")
-  custom_emojis                 Json?    @default("[]")
-  webhooks                      Json?    @default("[]")
-  features                      Json?    @default("[]")
+  exclusions                    Json?     @default("[]")
+  custom_emojis                 Json?     @default("[]")
+  webhooks                      Json?     @default("[]")
+  features                      Json?     @default("[]")
   members                       Member[]
   channels                      Channel[]
   roles                         Role[]
   bans                          Ban[]
-  mfa_level                     Int?     @default(0)
+  mfa_level                     Int?      @default(0)
   vanity_url                    String?
-  default_message_notifications Int?     @default(0)
-  verification_level            Int?     @default(0)
-  explicit_content_filter       Int?     @default(0)
-  premium_tier                  Int?     @default(0)
-  premium_subscription_count    Int?     @default(0)
-  premium_progress_bar_enabled  Boolean? @default(false)
-  owner                         User     @relation(fields: [owner_id], references: [id])
+  default_message_notifications Int?      @default(0)
+  verification_level            Int?      @default(0)
+  explicit_content_filter       Int?      @default(0)
+  premium_tier                  Int?      @default(0)
+  premium_subscription_count    Int?      @default(0)
+  premium_progress_bar_enabled  Boolean?  @default(false)
+  owner                         User      @relation(fields: [owner_id], references: [id])
   invites                       Invite[]
 
   @@map("guilds")
@@ -222,7 +223,7 @@ model Role {
   permissions Int     @default(104193089)
   position    Int     @default(0)
 
-  guild    Guild  @relation(fields: [guild_id], references: [id], onDelete: Cascade)
+  guild Guild @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@map("roles")
 }
@@ -236,7 +237,7 @@ model Member {
   deaf      Boolean @default(false)
   mute      Boolean @default(false)
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
   guild Guild @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@id([guild_id, user_id])
@@ -271,6 +272,7 @@ model Message {
   content          String?
   edited_timestamp String?
   author           User?        @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  channel           Channel?        @relation(fields: [channel_id], references: [id], onDelete: Cascade)
   mention_everyone Boolean?     @default(false)
   nonce            String?
   timestamp        String?
@@ -322,7 +324,7 @@ model Ban {
   guild_id String
   user_id  String
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
   guild Guild @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@id([guild_id, user_id])

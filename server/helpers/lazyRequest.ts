@@ -5,18 +5,51 @@ import { GuildService } from '../api/services/guildService.ts';
 import permissions from './permissions.ts';
 import type { WebSocket } from 'ws';
 import type { Session } from '../types/session.ts';
-import type { Guild } from '../types/guild.ts';
 import type { Channel } from '../types/channel.ts';
 import type { Role } from '../types/role.ts';
 import type { Member } from '../types/member.ts';
 import ctx from '../context.ts';
 import type { StatusType } from '../types/presence.ts';
+import { prisma } from '../prisma.ts';
+import { PUBLIC_USER_SELECT } from '../api/services/accountService.ts';
 
 const lazyRequest = {
-  getSortedList: (guild: Guild): Member[] => {
-    if (!guild.members) return [];
+  getSortedList: async (guild_id: string): Promise<Member[]> => {
+    const guild_members = await prisma.member.findMany({
+      where: {
+        guild_id: guild_id
+      },
+      select: {
+        nick: true,
+        roles: true,
+        joined_at: true,
+        user_id: true,
+        guild_id: true,
+        deaf: true,
+        mute: true,
+        user: {
+          select: PUBLIC_USER_SELECT
+        }
+      }
+    });
 
-    return [...guild.members].sort((a, b) => {
+    if (!guild_members || !guild_members.length) {
+      return [];
+    }
+
+    const members: Member[] = guild_members.map(m => ({
+      ...m,
+      roles: m.roles as string[],
+      user: {
+        ...m.user,
+        username: m.user.username ?? 'Deleted User',
+        discriminator: m.user.discriminator ?? '0000',
+        avatar: m.user.avatar ?? null,
+        bot: !!m.user.bot
+      }
+    }));
+ 
+    return [...members].sort((a, b) => {
       const pA = globalUtils.getUserPresence(a);
       const pB = globalUtils.getUserPresence(b);
       const statusA = pA?.status && pA.status !== 'offline' ? 1 : 0;
@@ -26,13 +59,13 @@ const lazyRequest = {
       return a.user.username.localeCompare(b.user.username);
     });
   },
-  getListId: (session: Session, guild: Guild, channel: Channel, everyoneRole: Role): string => {
+  getListId: (session: Session, guild_id: string, channel: Channel, everyoneRole: Role): string => {
     if (!channel) {
       if (!session.subscriptions) {
         session.subscriptions = {};
       }
 
-      session.subscriptions[guild.id] = {};
+      session.subscriptions[guild_id] = {};
 
       return murmur3('', 0).toString();
     }
@@ -70,7 +103,7 @@ const lazyRequest = {
 
     return murmur3(perms.sort().join(','), 0).toString();
   },
-  computeMemberList: async (guild: Guild, channel: Channel, ranges: [number, number], bypassPerms = false): Promise<any> => {
+  computeMemberList: async (guild_id: string, channel: Channel, ranges: [number, number], bypassPerms = false): Promise<any> => {
     function arrayPartition<T>(array: T[], callback: (elem: T) => boolean): [T[], T[]] {
       return array.reduce(
         ([pass, fail], elem): [T[], T[]] => {
@@ -95,8 +128,48 @@ const lazyRequest = {
       };
     }
 
-    const permissionPromises = guild.members?.map(async (m) => {
-      const hasPerm = await permissions.hasChannelPermissionTo(channel.id, guild.id, m.user.id, 'READ_MESSAGES');
+    const guild_members = await prisma.member.findMany({
+      where: {
+        guild_id: guild_id
+      },
+      select: {
+        nick: true,
+        roles: true,
+        joined_at: true,
+        user_id: true,
+        guild_id: true,
+        deaf: true,
+        mute: true,
+        user: {
+          select: PUBLIC_USER_SELECT
+        }
+      }
+    });
+
+    const guild_roles = await prisma.role.findMany({
+      where: {
+        guild_id: guild_id
+      },
+      select: {
+        hoist: true,
+        position: true
+      }
+    })
+
+    const members: Member[] = guild_members.map(m => ({
+      ...m,
+      roles: m.roles as string[],
+      user: {
+        ...m.user,
+        username: m.user.username ?? "Deleted User",
+        discriminator: m.user.discriminator ?? '0000',
+        avatar: m.user.avatar ?? null,
+        bot: !!m.user.bot
+      }
+    })) as Member[];
+
+    const permissionPromises = members?.map(async (m) => {
+      const hasPerm = await permissions.hasChannelPermissionTo(channel.id, guild_id, m.user.id, 'READ_MESSAGES');
       return { member: m, canSee: hasPerm || bypassPerms };
     }) || [];
 
@@ -104,22 +177,26 @@ const lazyRequest = {
 
     const visibleMembers = results.filter(r => r.canSee).map(r => r.member);
 
-    const sortedMembers = [...visibleMembers!!].sort((a, b) => {
+    const sortedMembers = [...visibleMembers].sort((a, b) => {
       const pA = globalUtils.getUserPresence(a);
       const pB = globalUtils.getUserPresence(b);
       const statusA = pA?.status && pA.status !== 'offline' ? 1 : 0;
       const statusB = pB?.status && pB.status !== 'offline' ? 1 : 0;
       if (statusA !== statusB) return statusB - statusA;
-      return a.user.username.localeCompare(b.user.username);
+
+      const nameA = a.user?.username ?? "";
+      const nameB = b.user?.username ?? "";
+
+      return nameA.localeCompare(nameB);
     });
 
     const allItems: any = [];
     const groups: any = [];
     const placedUserIds = new Set();
 
-    let remainingMembers = [...sortedMembers];
+    let remainingMembers: Member[] = [...sortedMembers];
 
-    const hoistedRoles = (guild.roles || [])
+    const hoistedRoles = (guild_roles || [])
       .filter((r) => r.hoist)
       .sort((a, b) => b.position - a.position);
 
@@ -195,7 +272,7 @@ const lazyRequest = {
       count: visibleMembers?.length,
     };
   },
-  clearGuildSubscriptions: (session: any, guildId: string) => {
+  clearGuildSubscriptions: (session: Session, guildId: string) => {
     if (session.subscriptions && session.subscriptions[guildId]) {
       delete session.subscriptions[guildId];
     }
@@ -208,12 +285,32 @@ const lazyRequest = {
       }
     }
   },
-  handleMembersSync: async (session: Session, channel: Channel, guild: Guild, subData: any) => {
-    if (!subData || !subData.ranges || !guild.roles) {
+  handleMembersSync: async (session: Session, channel: Channel, guild_id: string, subData: any) => {
+    if (!subData || !subData.ranges) {
       return;
     }
 
-    const everyoneRole = guild.roles?.find((x: Role) => x.id === guild.id);
+    const everyoneRole = await prisma.role.findUnique({
+      where: {
+        role_id: guild_id,
+        guild_id: guild_id
+      },
+      select: {
+        guild: {
+          select: {
+            roles: true,
+          }
+        },
+        role_id: true,
+        color: true,
+        guild_id: true,
+        hoist: true,
+        mentionable: true,
+        name: true,
+        position: true,
+        permissions: true
+      }
+    });
 
     if (!everyoneRole) {
       return;
@@ -221,19 +318,28 @@ const lazyRequest = {
 
     const list_id = lazyRequest.getListId(
       session,
-      guild,
+      everyoneRole.guild_id,
       channel,
-      everyoneRole,
+      {
+        id: everyoneRole.role_id,
+        color: everyoneRole.color,
+        guild_id: everyoneRole.guild_id,
+        hoist: everyoneRole.hoist,
+        mentionable: everyoneRole.mentionable,
+        name: everyoneRole.name,
+        position: everyoneRole.position,
+        permissions: everyoneRole.permissions,
+      },
     );
 
     const { ops, groups, items, count } = await lazyRequest.computeMemberList(
-      guild,
+      everyoneRole.guild_id,
       channel,
       subData.ranges,
     );
 
     const onlineCount = groups
-      .filter((g: any) => g.id === 'online' || guild.roles?.some((r: Role) => r.id === g.id && r.hoist))
+      .filter((g: any) => g.id === 'online' || everyoneRole.guild.roles?.some((r) => r.role_id === g.id && r.hoist))
       .reduce((acc: any, g: any) => acc + g.count, 0);
 
     if (!session.memberListCache) {
@@ -243,7 +349,7 @@ const lazyRequest = {
     session.memberListCache[channel.id] = items;
 
     session.dispatch('GUILD_MEMBER_LIST_UPDATE', {
-      guild_id: guild.id,
+      guild_id: everyoneRole.guild_id,
       id: list_id,
       ops: ops,
       groups: groups,
@@ -251,31 +357,58 @@ const lazyRequest = {
       online_count: onlineCount,
     });
   },
-  syncMemberList: async (guild: Guild, user_id: string) => {
+  syncMemberList: async (guild_id: string, user_id: string) => {
     await dispatcher.dispatchEventInGuildToThoseSubscribedTo(
-      guild.id,
+      guild_id,
       'LIST_RELOAD',
       async function (this: any) {
         const otherSession = this;
-        const guildSubs = otherSession.subscriptions[guild.id];
+        const guildSubs = otherSession.subscriptions[guild_id];
 
         if (!guildSubs) return null;
-  
-        for (const [channelId, subData] of Object.entries(guildSubs) as any[][]) {
-          const channel = guild.channels?.find((x) => x.id === channelId);
-          if (!channel) continue;
+        
+        const everyoneRole = await prisma.role.findUnique({
+          where: {
+            role_id: guild_id,
+            guild_id: guild_id
+          },
+          select: {
+            role_id: true,
+            color: true,
+            guild_id: true,
+            hoist: true,
+            mentionable: true,
+            name: true,
+            position: true,
+            permissions: true
+          }
+        });
 
+        if (!everyoneRole) {
+          return null;
+        }
+
+        for (const [channelId, subData] of Object.entries(guildSubs) as any[][]) {
           const {
             items: newItems,
             groups,
             count,
-          } = await lazyRequest.computeMemberList(guild, channel, subData.ranges || [[0, 99]]);
+          } = await lazyRequest.computeMemberList(guild_id, channelId, subData.ranges || [[0, 99]]);
 
           const listId = lazyRequest.getListId(
             otherSession,
-            guild,
-            channel,
-            guild.roles?.find((x) => x.id === guild.id)!!,
+            guild_id,
+            channelId,
+            {
+              id: everyoneRole.role_id,
+              color: everyoneRole.color,
+              guild_id: everyoneRole.guild_id,
+              hoist: everyoneRole.hoist,
+              mentionable: everyoneRole.mentionable,
+              name: everyoneRole.name,
+              position: everyoneRole.position,
+              permissions: everyoneRole.permissions,
+            },
           );
           const totalOnline = groups
             .filter((g: any) => g.id !== 'offline')
@@ -340,7 +473,7 @@ const lazyRequest = {
 
           if (ops.length > 0) {
             return {
-              guild_id: guild.id,
+              guild_id: guild_id,
               id: listId,
               ops: ops,
               groups: groups,
@@ -394,7 +527,7 @@ const lazyRequest = {
         });
       }
 
-      await lazyRequest.handleMembersSync(socket.session, channel, guild, {
+      await lazyRequest.handleMembersSync(socket.session, channel, guild.id, {
         ranges: ranges,
       });
     }

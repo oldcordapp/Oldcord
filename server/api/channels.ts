@@ -27,6 +27,7 @@ import permissions from '../helpers/permissions.ts';
 import { AuditLogService } from './services/auditLogService.ts';
 import { AuditLogActionType } from '../types/auditlog.ts';
 import type { WebSocket } from "ws";
+import { prisma } from '../prisma.ts';
 
 const router = Router({ mergeParams: true });
 
@@ -164,9 +165,9 @@ router.patch(
           }
         }
 
-        if (auditChanges.length > 0) {
+        if (auditChanges.length > 0 && channel.guild_id) {
           await  AuditLogService.insertEntry(
-            channel.guild_id!!,
+            channel.guild_id,
             req.account.id,
             channel.id,
             AuditLogActionType.CHANNEL_UPDATE,
@@ -222,13 +223,15 @@ router.patch(
         channel.type = channel.type == ChannelType.VOICE ? 'voice' : 'text';
       }
 
-      await dispatcher.dispatchEventToAllPerms(
-        channel.guild_id!!,
-        channel.id,
-        'READ_MESSAGES',
-        'CHANNEL_UPDATE',
-        channel,
-      );
+      if (channel.guild_id) {
+        await dispatcher.dispatchEventToAllPerms(
+          channel.guild_id,
+          channel.id,
+          'READ_MESSAGES',
+          'CHANNEL_UPDATE',
+          channel,
+        );
+      }
 
       return res.status(200).json(channel);
     } catch (error) {
@@ -316,7 +319,6 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const sender = req.account;
-      const guild = req.guild;
       const channel = req.channel;
       const limits = ctx.config?.limits;
 
@@ -348,8 +350,12 @@ router.post(
       let xkcdpass = Boolean(req.body.xkcdpass) ?? false;
       let regenerate = Boolean(req.body.regenerate) ?? true;
 
+      if (!channel.guild_id) {
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+      }
+
       const invite = await InviteService.createInvite(
-        guild.id,
+        channel.guild_id,
         channel.id,
         sender.id,
         temporary,
@@ -372,7 +378,7 @@ router.post(
       ];
 
       await AuditLogService.insertEntry(
-        channel.guild_id!!,
+        channel.guild_id,
         req.account.id,
         invite.code,
         AuditLogActionType.INVITE_CREATE,
@@ -399,9 +405,16 @@ router.get(
   channelPermissionsMiddleware('MANAGE_WEBHOOKS'),
   async (req: Request, res: Response) => {
     try {
-      const guild = req.guild;
       const channel = req.channel;
-      const webhooks = guild.webhooks?.filter((x) => x.channel_id === channel.id);
+      const webhooks = await prisma.webhook.findMany({
+        where: {
+          channel_id: channel.id
+        },
+      });
+
+      webhooks.map((webhook) => {
+        return WebhookService._formatInternalWebhook(webhook);
+      });
 
       return res.status(200).json(webhooks);
     } catch (error) {
@@ -594,7 +607,7 @@ router.put(
       channel.permission_overwrites = overwrites;
 
       await dispatcher.dispatchEventInChannel(req.guild.id, channel.id, 'CHANNEL_UPDATE', channel);
-      await lazyRequest.syncMemberList(req.guild, req.account.id); //do this just in case they deny/allow everyone to view a previously locked off/just unlocked channel
+      await lazyRequest.syncMemberList(req.guild.id, req.account.id); //do this just in case they deny/allow everyone to view a previously locked off/just unlocked channel
 
       return res.status(204).send();
     } catch (error) {
@@ -682,7 +695,7 @@ router.delete(
       }
 
       await dispatcher.dispatchEventInChannel(req.guild.id, channel.id, 'CHANNEL_UPDATE', channel);
-      await lazyRequest.syncMemberList(req.guild, req.account.id); //do this just in case they deny/allow everyone to view a previously 
+      await lazyRequest.syncMemberList(req.guild.id, req.account.id); //do this just in case they deny/allow everyone to view a previously 
 
       return res.status(204).send();
     } catch (error) {

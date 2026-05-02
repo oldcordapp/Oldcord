@@ -166,7 +166,8 @@ export const GuildService = {
                 id: true,
                 system_channel_id: true,
                 members: { select: { user_id: true } },
-                roles: true
+                roles: true,
+                name: true
             }
         });
 
@@ -230,7 +231,7 @@ export const GuildService = {
                 function (socket: WebSocket) {
                     return globalUtils.personalizeMessageObject(
                         join_msg,
-                        guild,
+                        guild.name ?? undefined,
                         socket.client_build_date,
                     );
                 },
@@ -656,12 +657,18 @@ export const GuildService = {
         after_id?: string,
         limit: number = 50,
         offset: number = 0,
+        has: string[] = []
     ) {
         try {
             const where: any = {
-                guild_id: guild_id,
-                channel: includeNsfw ? {} : { nsfw: false }
+                guild_id: guild_id
             };
+
+            if (!includeNsfw) {
+                where.channel = {
+                    nsfw: false
+                };
+            }
 
             if (author_id) where.author_id = author_id;
 
@@ -672,8 +679,6 @@ export const GuildService = {
                 };
             }
 
-            if (channel_id) where.channel_id = channel_id;
-
             if (mentions_user_id) {
                 where.content = {
                     ...where.content,
@@ -681,10 +686,72 @@ export const GuildService = {
                 };
             }
 
+            if (channel_id) where.channel_id = channel_id;
+
             if (before_id || after_id) {
                 where.message_id = {};
                 if (before_id) where.message_id.lt = before_id;
                 if (after_id) where.message_id.gt = after_id;
+            }
+
+            if (has.length && has.length > 0) {
+                where.AND = where.AND || [];
+
+                for(const ha of has) {
+                    const type = ha.toLowerCase();
+
+                    if (type === 'file') {
+                        where.AND.push({ attachments: { some: {} } });
+                    } else if (type === 'image') {
+                        where.AND.push({
+                            attachments: {
+                                some: {
+                                    OR: [
+                                        { filename: { endsWith: '.png' } },
+                                        { filename: { endsWith: '.jpg' } },
+                                        { filename: { endsWith: '.jpeg' } },
+                                        { filename: { endsWith: '.gif' } },
+                                        { filename: { endsWith: '.webp' } }
+                                    ]
+                                }
+                            }
+                        });
+                    } else if (type === 'video') {
+                        where.AND.push({
+                            attachments: {
+                                some: {
+                                    OR: [
+                                        { filename: { endsWith: '.mp4' } },
+                                        { filename: { endsWith: '.mov' } },
+                                        { filename: { endsWith: '.webm' } }
+                                    ]
+                                }
+                            }
+                        });
+                    } else if (type === 'sound') {
+                        where.AND.push({
+                            attachments: {
+                                some: {
+                                    OR: [
+                                        { filename: { endsWith: '.mp3' } },
+                                        { filename: { endsWith: '.ogg' } },
+                                        { filename: { endsWith: '.wav' } }
+                                    ]
+                                }
+                            }
+                        });
+                    } else if (type === 'link') {
+                        where.AND.push({
+                            content: { contains: 'http', mode: 'insensitive' }
+                        });
+                    } else if (type === 'embed') {
+                        where.AND.push({
+                            NOT: {
+                                embeds: { equals: [] }
+                            }
+                        });
+                    }
+                }
             }
 
             const [totalCount, messageRows] = await Promise.all([
@@ -696,7 +763,8 @@ export const GuildService = {
                     skip: offset,
                     include: {
                         attachments: true,
-                    }
+                        channel: true
+                    },
                 })
             ]);
 

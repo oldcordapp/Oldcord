@@ -4,7 +4,6 @@ import { handleMembersSync } from './lazyRequest.js';
 import { logText } from './logger.ts';
 import permissions from './permissions.ts';
 import type { Channel } from '../types/channel.ts';
-import { GuildService } from '../api/services/guildService.ts';
 import type { Session } from '../types/session.ts';
 
 const dispatcher = {
@@ -190,7 +189,7 @@ const dispatcher = {
         const channel = guild.channels.find((x) => x.id === sub.channel_id) as Channel;
 
         if (channel) {
-          await handleMembersSync(session, channel, GuildService._formatResponse(guild), sub);
+          await handleMembersSync(session, channel, guild_id, sub);
         }
       }
 

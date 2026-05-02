@@ -874,9 +874,13 @@ router.delete('/messages/:messageid', staffAccessMiddleware(2), async (req: Requ
       },
     });
 
+    if (!deletedMsg.guild_id) {
+      return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+    }
+
     const guildRet = await prisma.guild.findUnique({
       where: {
-        id: deletedMsg.guild_id!
+        id: deletedMsg.guild_id
       },
       include: {
         members: true

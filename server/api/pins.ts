@@ -38,7 +38,6 @@ router.put('/:messageid', messageMiddleware, async (req: Request, res: Response)
   try {
     const channel = req.channel;
     const message = req.message;
-    const guild = req.guild;
 
     if (message.pinned) {
       //should we tell them?
@@ -46,8 +45,12 @@ router.put('/:messageid', messageMiddleware, async (req: Request, res: Response)
       return res.status(204).send();
     }
 
+    if (!message.guild_id) {
+      return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+    }
+
     await AuditLogService.insertEntry(
-      req.params.guildid as string,
+      message.guild_id,
       req.account.id,
       message.author.id,
       AuditLogActionType.MESSAGE_PIN,
@@ -80,17 +83,17 @@ router.put('/:messageid', messageMiddleware, async (req: Request, res: Response)
 
       await dispatcher.dispatchEventInPrivateChannel(channel.id, 'MESSAGE_CREATE', pin_msg);
     } else {
-      await dispatcher.dispatchEventInChannel(guild.id, channel.id, 'MESSAGE_UPDATE', message);
-      await dispatcher.dispatchEventInChannel(guild.id, channel.id, 'CHANNEL_PINS_UPDATE', {
+      await dispatcher.dispatchEventInChannel(message.guild_id, channel.id, 'MESSAGE_UPDATE', message);
+      await dispatcher.dispatchEventInChannel(message.guild_id, channel.id, 'CHANNEL_PINS_UPDATE', {
         channel_id: channel.id,
         last_pin_timestamp: new Date().toISOString(),
       });
 
-      const pin_msg = await MessageService.createSystemMessage(guild.id, channel.id, MessageType.PIN, [
+      const pin_msg = await MessageService.createSystemMessage(message.guild_id, channel.id, MessageType.PIN, [
         req.account
       ]);
 
-      await dispatcher.dispatchEventInChannel(guild.id, channel.id, 'MESSAGE_CREATE', pin_msg);
+      await dispatcher.dispatchEventInChannel(message.guild_id, channel.id, 'MESSAGE_CREATE', pin_msg);
     }
 
     return res.status(204).send();
@@ -105,7 +108,6 @@ router.delete('/:messageid', messageMiddleware, async (req: Request, res: Respon
   try {
     const channel = req.channel;
     const message = req.message;
-    const guild = req.guild;
 
     if (!message.pinned) {
       //should we tell them?
@@ -113,8 +115,12 @@ router.delete('/:messageid', messageMiddleware, async (req: Request, res: Respon
       return res.status(204).send();
     }
 
+    if (!message.guild_id) {
+      return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+    }
+
     await AuditLogService.insertEntry(
-      req.params.guildid as string,
+      message.guild_id,
       req.account.id,
       message.author.id,
       AuditLogActionType.MESSAGE_UNPIN,
@@ -138,7 +144,7 @@ router.delete('/:messageid', messageMiddleware, async (req: Request, res: Respon
 
     if (channel.type == ChannelType.DM || channel.type == ChannelType.GROUPDM)
       await dispatcher.dispatchEventInPrivateChannel(channel.id, 'MESSAGE_UPDATE', message);
-    else await dispatcher.dispatchEventInChannel(guild.id, channel.id, 'MESSAGE_UPDATE', message);
+    else await dispatcher.dispatchEventInChannel(message.guild_id, channel.id, 'MESSAGE_UPDATE', message);
 
     return res.status(204).send();
   } catch (error) {

@@ -14,7 +14,7 @@ const router = Router();
 
 router.get('/', cacheForMiddleware(60 * 5, "private", false), async (req: Request, res: Response) => {
   try {
-    const account = req.account!;
+    const account = req.account;
 
     if (account.bot) {
       return res.status(403).json(errors.response_403.BOTS_CANNOT_USE_THIS_ENDPOINT); //bots.. ermm
