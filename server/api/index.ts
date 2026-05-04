@@ -25,6 +25,7 @@ import voice from './voice.ts';
 import webhooks from './webhooks.js';
 import type { Request, Response } from "express";
 
+
 app.use('/auth', auth);
 app.use('/connections', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), connections);
 
@@ -95,19 +96,8 @@ app.get('/gateway/bot', (req: Request, res: Response) => {
   });
 });
 
-app.get('/voice/ice', (_req: Request, res: Response) => {
-  return res.status(200).json({
-    servers: [
-      {
-        url: 'stun:stun.l.google.com:19302',
-        username: '',
-        credential: '',
-      },
-    ],
-  });
-});
-
 app.use('/reports', reports);
+app.use('/voice', voice);
 
 app.use(authMiddleware);
 
@@ -115,7 +105,6 @@ app.use('/admin', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), admin);
 app.use('/tutorial', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), tutorial);
 app.use('/hypesquad', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), hypesquad);
 app.use('/users', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), users);
-app.use('/voice', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), voice);
 app.use('/guilds', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), guilds);
 app.use('/channels', instanceMiddleware('VERIFIED_EMAIL_REQUIRED'), channels);
 app.use('/gifs', gifs);

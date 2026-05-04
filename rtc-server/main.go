@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,27 +11,31 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/joho/godotenv"
-	"github.com/pion/sdp/v3"
+	"github.com/pion/ice/v4"
+	"github.com/pion/interceptor"
+	"github.com/pion/logging"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
 
 const Port = 3240
+const UDPPort = 4240
+const RestPort = 1337
 
 var (
     pendingSessions = make(map[string]SyncData)
     sessionMu sync.RWMutex
 	clients = make(map[string]*RTCClient)
 	clientsMu sync.RWMutex
-	rooms   = make(map[string]*VoiceRoom)
-    roomsMu sync.Mutex
 	RTC_SECRET_KEY string
 	IP string
+	TestMode bool
+	webrtcAPI *webrtc.API
 )
 
 func VerifyConnection(serverId string, userId string, sessionId string, token string) (SyncData, bool) {
@@ -57,166 +63,38 @@ func RemoveClient(userID string) {
     delete(clients, userID)
 }
 
-func ReconstructSDP(fragment string) (string, error) {
-    sd := &sdp.SessionDescription{
-        Version: 0,
-        Origin: sdp.Origin{
-            Username:       "-",
-            SessionID:      0,
-            SessionVersion: 0,
-            NetworkType:    "IN",
-            AddressType:    "IP4",
-            UnicastAddress: "127.0.0.1",
-        },
-        SessionName: "-",
-        TimeDescriptions: []sdp.TimeDescription{
-            {Timing: sdp.Timing{StartTime: 0, StopTime: 0}},
-        },
-    }
-
-	var audioFormats []string
-	var videoFormats []string
-
-	lines := strings.Split(fragment, "\n")
-    for _, line := range lines {
-        line = strings.TrimSpace(line)
-        if !strings.HasPrefix(line, "a=rtpmap:") {
-            continue
-        }
-
-        parts := strings.Split(strings.TrimPrefix(line, "a=rtpmap:"), " ")
-        if len(parts) < 2 { continue }
-        
-        payloadID := parts[0]
-        codecInfo := strings.ToLower(parts[1])
-
-        if strings.Contains(codecInfo, "opus") {
-            audioFormats = append(audioFormats, payloadID)
-        } else if strings.Contains(codecInfo, "vp8") || strings.Contains(codecInfo, "h264") || strings.Contains(codecInfo, "rtx") {
-            videoFormats = append(videoFormats, payloadID)
-        }
-    }
-
-	if len(audioFormats) == 0 { audioFormats = []string{"111"} }
-    if len(videoFormats) == 0 { videoFormats = []string{"96"} }
-
-	audioMedia := &sdp.MediaDescription{
-        MediaName: sdp.MediaName{
-            Media: "audio", Port: sdp.RangedPort{Value: 9},
-            Protos: []string{"UDP", "TLS", "RTP", "SAVPF"},
-            Formats: audioFormats,
-        },
-        Attributes: []sdp.Attribute{{Key: "setup", Value: "actpass"}, {Key: "mid", Value: "audio"}},
-    }
-
-    videoMedia := &sdp.MediaDescription{
-        MediaName: sdp.MediaName{
-            Media: "video", Port: sdp.RangedPort{Value: 9},
-            Protos: []string{"UDP", "TLS", "RTP", "SAVPF"},
-            Formats: videoFormats,
-        },
-        Attributes: []sdp.Attribute{{Key: "setup", Value: "actpass"}, {Key: "mid", Value: "video"}},
-    }
-
-   for _, line := range lines {
-        line = strings.TrimSpace(line)
-        if line == "" || !strings.HasPrefix(line, "a=") { continue }
-        attrRaw := strings.TrimPrefix(line, "a=")
-        parts := strings.SplitN(attrRaw, ":", 2)
-        attr := sdp.Attribute{Key: parts[0]}
-        if len(parts) > 1 { attr.Value = parts[1] }
-
-        audioMedia.Attributes = append(audioMedia.Attributes, attr)
-        videoMedia.Attributes = append(videoMedia.Attributes, attr)
-    }
-
-    sd.MediaDescriptions = append(sd.MediaDescriptions, audioMedia, videoMedia)
-
-    marshaled, err := sd.Marshal()
-    return string(marshaled), err
-}
-
-func BroadcastToClients(serverId string, payload interface{}) {
-	clientsMu.RLock();
-	defer clientsMu.RUnlock();
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-
-	for _, client := range clients {
-		if client.ServerID == serverId {
-			err := client.Socket.Write(context.Background(), websocket.MessageText, data)
-			if err != nil {
-				fmt.Printf("Failed to broadcast packet to %s: %v\n", client.UserID, err)
-			}
+func FindClientBySSRC(ssrc uint32) *RTCClient {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	
+	for _, v := range clients {
+		if v.SSRC == ssrc {
+			return v
 		}
 	}
+
+	return nil
 }
 
-func SubscribeUserToTrack(subscriber *RTCClient, remoteTrack *webrtc.TrackRemote) {
-	if subscriber.PeerConnection == nil {
-		return
-	}
-
-    localTrack, err := webrtc.NewTrackLocalStaticRTP(
-        remoteTrack.Codec().RTPCodecCapability, 
-        remoteTrack.ID(), 
-        remoteTrack.StreamID(),
-    )
-    if err != nil {
-        fmt.Printf("Failed to create local track: %v\n", err)
-        return
-    }
-
-    sender, err := subscriber.PeerConnection.AddTrack(localTrack)
-    if err != nil {
-        fmt.Printf("Failed to add track to PC: %v\n", err)
-        return
-    }
-
-    subscriber.mu.Lock()
-
-    if subscriber.SubscribedTracks == nil {
-        subscriber.SubscribedTracks = make(map[string]*webrtc.RTPSender)
-    }
-
-    subscriber.SubscribedTracks[remoteTrack.ID()] = sender
-    subscriber.mu.Unlock()
-
-	fmt.Printf("Subscribed to track from %s\n", subscriber.UserID)
-
-    rtpBuf := make([]byte, 1500)
-    for {
-        n, _, err := remoteTrack.Read(rtpBuf)
-        if err != nil {
-            return 
-        }
-
-        if _, err = localTrack.Write(rtpBuf[:n]); err != nil {
-            return 
-        }
-    }
-}
-
-func CheckAndForwardExistingTracks(serverId string, userId string) {
+func TryBroadcastUDP(p *rtp.Packet, serverId string, senderID string, senderSSRC uint32) {
 	clientsMu.RLock();
 	defer clientsMu.RUnlock();
 
-	contextClient, ok := clients[userId]
+	for _, client := range clients {
+		if client.ServerID == serverId && client.SSRC != senderSSRC {
+			//fmt.Printf("Server ID: %s - User ID: %s - SSRC %d\n", client.ServerID, client.UserID, client.SSRC)
+			if client.masterWebRTCAudio != nil {
+				//We may need to change the SSRC somehow before dispatching it to the other webrtc clients
+				client.masterWebRTCAudio.WriteRTP(p)
+			}
 
-    if !ok {
-        return
-    }
+			if client.pc == nil {
+				client.SendUDP(p, senderSSRC)
+			}
 
-	for _, otherClient := range clients {
-        if otherClient.UserID != userId && otherClient.ServerID == serverId {
-            if otherClient.AudioTrack != nil {
-                go SubscribeUserToTrack(contextClient, otherClient.AudioTrack)
-            }
-        }
-    }
+			client.SendSpeakingEvent(senderID, senderSSRC)
+		}
+	}
 }
 
 //So voice (2015* - 2018) works like this * - Depends as webrtc-p2p was only added in Jan 31 2017 and removed sometime in 2019 or so.
@@ -229,6 +107,15 @@ func CheckAndForwardExistingTracks(serverId string, userId string) {
 //Now the problem is, we must handle both WebRTC clients and raw UDP clients, to do this - we can hook the onTrack method of the pion webrtc connection. And get the raw SRTP, decrypt, translate and forward it to other raw UDP clients in the current room.
 //For the other way around, we can just transform the RTP -> decrypt it (if encrypted of course) and pass it to pion with create local track, then forward that to other webrtc clients in the room.
 
+func generateSSRC() uint32 {
+	var b [4]byte
+	_, err := rand.Read(b[:])
+	if err != nil {
+		panic(err) // or handle properly
+	}
+	return binary.BigEndian.Uint32(b[:])
+}
+
 func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context, currentUserID *string) {
 	var d Identify
 
@@ -239,13 +126,13 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 
 	sessionData, ok := VerifySession(d.Token)
 
-	if sessionData.ServerID != d.ServerID && sessionData.UserID != d.UserID && sessionData.SessionID != d.SessionID {
+	if sessionData.ServerID != d.ServerID && sessionData.UserID != d.UserID && sessionData.SessionID != d.SessionID && !TestMode {
 		fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
 		c.Close(4004, "Authentication failed")
 		return
 	}
 
-	if !ok {
+	if !ok && !TestMode {
 		fmt.Printf("User %s tried to force their way in with an invalid matching session ID & Token from the gateway server. They have been blocked.\n", d.UserID)
 		c.Close(4004, "Authentication failed")
 		return
@@ -253,7 +140,8 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 
 	fmt.Printf("User %s verified for server %s\n", d.UserID, d.ServerID)
 
-	client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, 1234, d.Video, c)
+	ssrc := generateSSRC()
+	client := NewRTCClient(d.UserID, d.ServerID, d.SessionID, d.Token, ssrc, d.Video, c)
 
 	if currentUserID != nil {
 		*currentUserID = d.UserID
@@ -266,9 +154,9 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 	wsjson.Write(ctx, c, map[string]interface{}{
 		"op": OpReady,
 		"d": map[string]interface{}{
-			"ssrc":         1234,
+			"ssrc":         ssrc,
 			"ip": IP,
-			"port": Port,
+			"port": UDPPort,
 			"modes": []string{
 				"xsalsa20_poly1305",
 				"plain",
@@ -277,7 +165,97 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 		},
 	})
 
-	CheckAndForwardExistingTracks(client.ServerID, client.UserID)
+	//CheckAndForwardExistingTracks(client.ServerID, client.UserID)
+}
+
+func (c *RTCClient) setupOnWebRTCTrack() {
+	c.pc.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		var trackType string
+		if remoteTrack.Kind() == webrtc.RTPCodecTypeAudio && remoteTrack.Codec().MimeType == webrtc.MimeTypeOpus {
+			trackType = "audio"
+		} else if remoteTrack.Kind() == webrtc.RTPCodecTypeVideo && remoteTrack.Codec().MimeType == webrtc.MimeTypeH264 {
+			trackType = "video"
+
+			/**
+			// send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
+			// do we need this? takes a while to see the video otherwise
+			go func() {
+				ticker := time.NewTicker(time.Second * 3)
+				for range ticker.C {
+					errSend := p.pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}})
+					if errSend != nil {
+						fmt.Println(errSend)
+					}
+				}
+			}()
+			*/
+		} else {
+			log.Printf("Client %s started publishing unknown track type %s", c.UserID, remoteTrack.Codec().MimeType)
+			return;
+		}
+
+		ssrc := webrtc.SSRC(remoteTrack.SSRC())
+
+		pt := &PublishedWebRTCTrack{
+			ssrc: ssrc,
+			stop: make(chan struct{}),
+		}
+		
+		c.mu.Lock()
+		c.setPublishedWebRTCTrack(trackType, pt)
+		c.mu.Unlock()
+
+		log.Printf("Client %s started publishing %s (SSRC: %d)", c.UserID, trackType, ssrc)
+
+		// Forward RTP packets to all subscribed peers
+		go func() {
+			subKey := c.UserID + "_" + trackType
+
+			for {
+				select {
+				case <-pt.stop:
+					return
+				default:
+				}
+
+				rtpPkt, _, readErr := remoteTrack.ReadRTP()
+				if readErr != nil {
+					log.Printf("Track read error for %s/%s: %v", c.UserID, trackType, readErr)
+					return
+				}
+
+				if !c.isAudioWebRTCPublished && trackType == "audio" || !c.isVideoWebRTCPublished && trackType == "video" {
+					// if we are not publishing this track, skip forwarding it
+					continue;
+				}
+
+				// Preserve original SSRC so the client can demultiplex
+				rtpPkt.SSRC = uint32(ssrc)
+
+				// Fan-out to all subscribers
+				clientsMu.RLock()
+				for _, other := range clients {
+					other.mu.Lock()
+					isSubscribed := other.subscriptions[subKey]
+					var masterTrack *MultiplexTrack
+					if trackType == "audio" {
+						masterTrack = other.masterWebRTCAudio
+					} else {
+						masterTrack = other.masterWebRTCVideo
+					}
+					other.mu.Unlock()
+
+					if isSubscribed && masterTrack != nil {
+						if writeErr := masterTrack.WriteRTP(rtpPkt); writeErr != nil {
+							// don't spam on closed channels
+							// log.Printf("Track write error to subscriber %s: %v", other.id, writeErr)
+						}
+					}
+				}
+				clientsMu.RUnlock()
+			}
+		}()
+	})
 }
 
 func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID string) {
@@ -296,6 +274,19 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 				fmt.Println("SelectProtocol (UDP) Unmarshal error: ", err)
 				return
 			}
+
+			if udpInfo.Mode != "plain" {
+				fmt.Printf("Unsupported UDP encryption mode: %s\n", udpInfo.Mode)
+				return
+			}
+
+			wsjson.Write(context.Background(), c, map[string]interface{}{
+				"op": 4,
+				"d": map[string]interface{}{
+					"mode": "plain",
+					"secret_key": nil,
+				},
+			})
 		case "webrtc":
 			var sdp string
 
@@ -310,7 +301,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 				sdpFragment = sdp
 			}
 
-			clients[currentUserID].SetupPC(sdpFragment)
+			clients[currentUserID].SetupPC(sdpFragment, payload.Codecs)
 		default:
 			c.Close(4012, "Unknown protocol")
 			return
@@ -422,6 +413,101 @@ func GetOutboundIP() net.IP {
     return localAddr.IP
 }
 
+func createMediaEngine() (*webrtc.MediaEngine, error) {
+	m := &webrtc.MediaEngine{}
+
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeOpus,
+			ClockRate:   48000,
+			Channels:    2,
+			SDPFmtpLine: "minptime=10;usedtx=1;useinbandfec=1",
+		},
+		PayloadType: 111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, err
+	}
+
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-max-bitrate=2500",
+			RTCPFeedback: nil,
+		},
+		PayloadType: 103,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		return nil, err
+	}
+	
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeRTX,
+			ClockRate:   90000,
+			SDPFmtpLine: "apt=103",
+			RTCPFeedback: nil,
+		},
+		PayloadType: 104,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+} // https://github.com/spacebarchat/pion-webrtc/blob/main/pion-sfu/main.go#L33
+
+func handleIPDiscovery(conn *net.UDPConn, remoteAddr *net.UDPAddr, ssrc uint32) {
+	packet := make([]byte, 70) //allocate 70 byte packet
+
+	binary.BigEndian.PutUint16(packet[0:2], 2) // response 0x2
+	binary.BigEndian.PutUint16(packet[2:4], 70) // packet length
+	binary.BigEndian.PutUint32(packet[4:8], ssrc) // ssrc uint32
+
+	ipStr := remoteAddr.IP.String()
+	copy(packet[8:], ipStr) //copy ip string into space at index 8
+
+	binary.BigEndian.PutUint16(packet[68:70], uint16(remoteAddr.Port))
+
+	_, err := conn.WriteToUDP(packet, remoteAddr)
+	if err != nil {
+		fmt.Printf("Error sending IP discovery response: %v\n", err)
+	}
+}
+
+func StartUDPHandler(port int) {
+	addr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+	conn, _ := net.ListenUDP("udp", addr)
+
+	go func() {
+        buf := make([]byte, 1500)
+
+        for {
+            n, remoteAddr, _ := conn.ReadFromUDP(buf)
+    
+            if n == 70 {
+                ssrc := binary.BigEndian.Uint32(buf[4:8])
+                handleIPDiscovery(conn, remoteAddr, ssrc)
+
+				client := FindClientBySSRC(ssrc)
+
+				if client != nil {
+					client.udpAddr = remoteAddr
+					client.udpSocket = conn
+				}
+				
+				fmt.Println("IP Discovery performed")
+            } else if n > 70 {
+				ssrc := binary.BigEndian.Uint32(buf[8:12])
+
+				client := FindClientBySSRC(ssrc)
+
+				if client != nil {
+					client.HandleUDP(buf[:n])
+				}
+			}
+        }
+    }()
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -430,8 +516,61 @@ func main() {
 
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
 	IP = GetOutboundIP().String()
+	TestMode = true
+	mediaEngine, err := createMediaEngine()
+
+	settingEngine := webrtc.SettingEngine{}
+	settingEngine.SetLite(true)
+
+	// restrict to UDP4 to improve compatibility with Firefox's strict ICE parser
+	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
+
+	// this is so that the sdp offer always sends our public IP
+	// in case our SFU server is behind NAT
+	settingEngine.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{
+		External:      []string{IP},
+		AsCandidateType: webrtc.ICECandidateTypeHost,
+		Mode:          webrtc.ICEAddressRewriteReplace,
+	})
+
+	// debug logging, remove when done
+	logFactory := logging.NewDefaultLoggerFactory()
+	logFactory.DefaultLogLevel = logging.LogLevelDebug
+	settingEngine.LoggerFactory = logFactory
+
+	// all of our traffic will be coming from a single port, and multiplexed
+	mux, err := ice.NewMultiUDPMuxFromPort(Port)
+
+	if err != nil {
+		log.Fatalf("NewMultiUDPMuxFromPort: %v", err)
+	}
+
+	settingEngine.SetICEUDPMux(mux)
+
+	// Create an InterceptorRegistry. This is the user configurable RTP/RTCP Pipeline.
+	// This provides NACKs, RTCP Reports and other features. If you use `webrtc.NewPeerConnection`
+	// this is enabled by default. If you are manually managing You MUST create a InterceptorRegistry
+	// for each PeerConnection.
+	interceptorRegistry := &interceptor.Registry{}
+
+	// We want TWCC in case the subscriber supports it
+	if err = webrtc.ConfigureTWCCSender(mediaEngine, interceptorRegistry); err != nil {
+		panic(err)
+	}
+
+	if err = webrtc.ConfigureRTCPReports(interceptorRegistry); err != nil {
+		panic(err)
+	}
+
+	webrtcAPI = webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithSettingEngine(settingEngine),
+		webrtc.WithInterceptorRegistry(interceptorRegistry),
+	)
+
 	http.HandleFunc("/", handleSignaling);
 	http.HandleFunc("/internal/sync", handleSync)
+	StartUDPHandler(UDPPort)
 	fmt.Println("[OLDCORD] RTC Server v2.0 is up on " + IP + ":" + strconv.Itoa(Port))
 	log.Fatal(http.ListenAndServe(":" + strconv.Itoa(Port), nil))
 }
