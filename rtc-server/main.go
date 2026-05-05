@@ -23,10 +23,6 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const Port = 3240
-const UDPPort = 4240
-const RestPort = 1337
-
 var (
     pendingSessions = make(map[string]SyncData)
     sessionMu sync.RWMutex
@@ -35,6 +31,9 @@ var (
 	RTC_SECRET_KEY string
 	IP string
 	TestMode bool
+	Port int
+	UDPPort int
+	RestPort int
 	webrtcAPI *webrtc.API
 )
 
@@ -258,17 +257,15 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 	})
 }
 
-func GetWebRTCP2PPeers(exclusionId string) ([]string) {
+func GetWebRTCP2PPeers(exclusionId string) []string {
 	clientsMu.RLock()
 	defer clientsMu.RUnlock()
 
-	var outPeers []string
-	
-	if len(clients) > 0 {
-		for _, client := range clients {
-			if client.UserID != exclusionId {
-				outPeers = append(outPeers, client.UserID)
-			}
+	outPeers := make([]string, 0)
+
+	for _, client := range clients {
+		if client.UserID != exclusionId {
+			outPeers = append(outPeers, client.UserID)
 		}
 	}
 
@@ -331,7 +328,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 		default:
 			c.Close(4012, "Unknown protocol")
 			return
-	} //to-do: webrtc-p2p
+	}
 }
 
 func handleSignal(msgD json.RawMessage, currentUserID string) {
@@ -536,7 +533,10 @@ func handleIPDiscovery(conn *net.UDPConn, remoteAddr *net.UDPAddr, ssrc uint32) 
 
 func StartUDPHandler(port int) {
 	addr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
-	conn, _ := net.ListenUDP("udp", addr)
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		log.Fatalf("failed to bind UDP socket on %d: %v", port, err)
+	}
 
 	go func() {
         buf := make([]byte, 1500)
@@ -575,6 +575,28 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
+	if len(os.Args) < 4 {
+		fmt.Println("Rtc-server must be run with a RTC server port, UDP port, and rest port.\nExample: go run . 3240 4240 1337")
+		return
+	}
+
+	Port, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal("Invalid RTC port")
+	}
+
+	UDPPort, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		log.Fatal("Invalid UDP port")
+	}
+
+	RestPortTemp, err := strconv.Atoi(os.Args[3])
+	if err != nil {
+		log.Fatal("Invalid REST port")
+	}
+
+	RestPort = RestPortTemp //SHUT UP GOLANG IVE USED THIS PORT IN RTCCLIENT. YES I HAVE.
+	
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
 	IP = GetOutboundIP().String()
 	TestMode = true
