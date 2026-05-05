@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -23,10 +24,21 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+type SpeakingState struct {
+    lastSent int64
+    speaking bool
+}
+
 var (
     pendingSessions = make(map[string]SyncData)
     sessionMu sync.RWMutex
 	clients = make(map[string]*RTCClient)
+	rateLimits = make(map[string]int64)
+	lastRTP = make(map[uint32]int64)
+	lastRTPMu sync.RWMutex
+	speakingState = make(map[uint32]*SpeakingState)
+	speakingStateMu sync.RWMutex
+	rateLimitsMu sync.RWMutex
 	clientsMu sync.RWMutex
 	RTC_SECRET_KEY string
 	IP string
@@ -35,6 +47,7 @@ var (
 	UDPPort int
 	RestPort int
 	webrtcAPI *webrtc.API
+	
 )
 
 func VerifyConnection(serverId string, userId string, sessionId string, token string) (SyncData, bool) {
@@ -76,21 +89,43 @@ func FindClientBySSRC(ssrc uint32) *RTCClient {
 }
 
 func TryBroadcastUDP(p *rtp.Packet, serverId string, senderID string, senderSSRC uint32) {
-	clientsMu.RLock();
-	defer clientsMu.RUnlock();
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+
+	now := time.Now().UnixMilli()
+
+	var shouldSendSpeaking bool
+
+	speakingStateMu.Lock()
+
+	state, exists := speakingState[senderSSRC]
+
+	if !exists {
+		state = &SpeakingState{}
+		speakingState[senderSSRC] = state
+	}
+
+	if now-state.lastSent > 500 {
+		shouldSendSpeaking = true
+		state.lastSent = now
+	}
+
+	speakingStateMu.Unlock()
 
 	for _, client := range clients {
-		if client.ServerID == serverId && client.SSRC != senderSSRC {
-			//fmt.Printf("Server ID: %s - User ID: %s - SSRC %d\n", client.ServerID, client.UserID, client.SSRC)
-			if client.masterWebRTCAudio != nil {
-				//We may need to change the SSRC somehow before dispatching it to the other webrtc clients
-				client.masterWebRTCAudio.WriteRTP(p)
-			}
+		if client.ServerID != serverId || client.SSRC == senderSSRC {
+			continue
+		}
 
-			if client.pc == nil {
-				client.SendUDP(p, senderSSRC)
-			}
+		if client.masterWebRTCAudio != nil {
+			client.masterWebRTCAudio.WriteRTP(p)
+		}
 
+		if client.pc == nil {
+			client.SendUDP(p, senderSSRC)
+		}
+
+		if shouldSendSpeaking {
 			client.SendSpeakingEvent(senderID, senderSSRC)
 		}
 	}
@@ -145,6 +180,8 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 	if currentUserID != nil {
 		*currentUserID = d.UserID
 	}
+
+	rateLimits[*currentUserID] = time.Now().Local().UnixMilli()
 
 	AddClient(client)
 
@@ -232,6 +269,11 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 				rtpPkt.SSRC = uint32(ssrc)
 
 				// Fan-out to all subscribers
+
+				lastRTPMu.Lock()
+				lastRTP[uint32(ssrc)] = time.Now().UnixMilli()
+				lastRTPMu.Unlock()
+
 				clientsMu.RLock()
 				for _, other := range clients {
 					other.mu.Lock()
@@ -280,7 +322,15 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 		return
 	}
 
-	clients[currentUserID].Protocol = payload.Protocol
+	if clients[currentUserID].Protocol != "Unchosen" {
+		c.Close(4005, "Already authenticated")
+		clients[currentUserID].Close()
+		return
+	}
+
+	if payload.Protocol == "udp" || payload.Protocol == "webrtc" || payload.Protocol == "webrtc-p2p" {
+		clients[currentUserID].Protocol = payload.Protocol
+	}
 
 	switch(payload.Protocol) {
 		case "udp":
@@ -329,6 +379,7 @@ func handleSelectProtocol(msgD json.RawMessage, c *websocket.Conn, currentUserID
 			})
 		default:
 			c.Close(4012, "Unknown protocol")
+			clients[currentUserID].Close()
 			return
 	}
 }
@@ -364,6 +415,66 @@ func handleSignal(msgD json.RawMessage, currentUserID string) {
     }
 
     fmt.Printf("Forwarded webrtc-p2p signal from %s -> %s\n", currentUserID, recipient.UserID)
+}
+
+func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID string) {
+	var payload Speaking
+
+	if err := json.Unmarshal(msgD, &payload); err != nil {
+		fmt.Println("Speaking Unmarshal error:", err)
+		return
+	}
+
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+
+	client := clients[currentUserID]
+
+	if client == nil || client.Protocol == "Unchosen" {
+		//how?
+		c.Close(4003, "Not authenticated")
+		client.Close()
+		return
+	}
+
+	if client.SelfMute {
+		return //dont dispatch speaking packets from those who describe themselves as "muted"
+	}
+	
+	rateLimitsMu.Lock()
+
+	last, exists := rateLimits[currentUserID]
+
+	now := time.Now().UnixMilli()
+
+	if exists && now - last < 1500 {
+		c.Close(4021, "Rate limited")
+		client.Close()
+		delete(rateLimits, currentUserID)
+		return
+	}
+
+	rateLimits[currentUserID] = now
+	rateLimitsMu.Unlock()
+
+	lastRTPMu.Lock()
+
+	lastRTPWhen := lastRTP[payload.SSRC]
+
+	if now - lastRTPWhen > 3000 {
+		//havent spoken in 3 seconds, ignore dispatching speaking packet
+		return
+	}
+
+	lastRTP[payload.SSRC] = time.Now().UnixMilli()
+	
+	lastRTPMu.Unlock()
+
+	for _, other := range clients {
+		if other.ServerID == client.ServerID && other.SSRC != client.SSRC {
+			other.SendSpeakingEvent(client.UserID, client.SSRC)
+		}
+	}
 }
 
 func handleSignaling(writer http.ResponseWriter, request *http.Request) {
@@ -426,6 +537,8 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 				handleSelectProtocol(msg.D, c, currentUserID)
 			case int(OpSignal):
 				handleSignal(msg.D, currentUserID)
+			case int(OpSpeaking):
+				handleSpeaking(msg.D, c, currentUserID)
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -139,6 +140,10 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 		c.recorder.WriteRTP(packet)
 		c.recorderMutex.Unlock()
 	}
+
+	lastRTPMu.Lock()
+	lastRTP[c.SSRC] = time.Now().UnixMilli()
+	lastRTPMu.Unlock()
 
 	TryBroadcastUDP(packet, c.ServerID, c.UserID, c.SSRC)
 }

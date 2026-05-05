@@ -10,7 +10,7 @@ const (
 	OpReady // 2
 	OpHeartbeat // 3
 	OpAnswer // 4
-	OpFiller1 // 5
+	OpSpeaking // 5
 	OpHeartbeatAck // 6
 	OpHello = 8
 	OpSignal = 10 // webrtc-p2p
@@ -23,6 +23,12 @@ type Identify struct {
 	SessionID string `json:"session_id"`
 	Token     string `json:"token"`
 	Video     bool   `json:"video"`
+}
+
+type Speaking struct {
+	UserID string `json:"user_id,omitempty"`
+	SSRC uint32 `json:"ssrc"`
+	Delay uint32 `json:"delay,omitempty"`
 }
 
 type Codec struct {
