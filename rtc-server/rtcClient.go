@@ -21,28 +21,28 @@ import (
 )
 
 type RTCClient struct {
-	ServerID  string
-	UserID    string
-	SessionID string
-	Token     string
-	SSRC      uint32
-	Video     bool
-	SelfMute  bool
-	SelfDeaf  bool
-	masterWebRTCAudio *MultiplexTrack
-	masterWebRTCVideo *MultiplexTrack
+	ServerID               string
+	UserID                 string
+	SessionID              string
+	Token                  string
+	SSRC                   uint32
+	Video                  bool
+	SelfMute               bool
+	SelfDeaf               bool
+	masterWebRTCAudio      *MultiplexTrack
+	masterWebRTCVideo      *MultiplexTrack
 	isAudioWebRTCPublished bool
 	isVideoWebRTCPublished bool
-	Socket          *websocket.Conn
-	udpSocket *net.UDPConn
-    mu             sync.Mutex
-	pc *webrtc.PeerConnection
-	udpAddr *net.UDPAddr
-	audioWebRTCPublished *PublishedWebRTCTrack
-	videoWebRTCPublished *PublishedWebRTCTrack
-	subscriptions map[string]bool
-	recorder         *oggwriter.OggWriter // Keep the writer alive here
-    recorderMutex    sync.Mutex
+	Socket                 *websocket.Conn
+	udpSocket              *net.UDPConn
+	mu                     sync.Mutex
+	pc                     *webrtc.PeerConnection
+	udpAddr                *net.UDPAddr
+	audioWebRTCPublished   *PublishedWebRTCTrack
+	videoWebRTCPublished   *PublishedWebRTCTrack
+	subscriptions          map[string]bool
+	recorder               *oggwriter.OggWriter // Keep the writer alive here
+	recorderMutex          sync.Mutex
 }
 
 type PublishedWebRTCTrack struct {
@@ -58,8 +58,8 @@ func NewRTCClient(userID string, serverID string, sessionId string, token string
 		SessionID: sessionId,
 		Token:     token,
 		Video:     video,
-		Socket: socket,
-		SSRC: ssrc,
+		Socket:    socket,
+		SSRC:      ssrc,
 	}
 }
 
@@ -80,42 +80,43 @@ func (p *RTCClient) setPublishedWebRTCTrack(trackType string, pt *PublishedWebRT
 
 func (c *RTCClient) Close() {
 	c.recorderMutex.Lock()
-    defer c.recorderMutex.Unlock()
+	defer c.recorderMutex.Unlock()
 
-    if c.recorder != nil {
-        err := c.recorder.Close()
-        if err != nil {
-            fmt.Printf("Error closing recorder: %v\n", err)
-        } else {
-            fmt.Println("Recording saved and closed for user:", c.UserID)
-        }
-        c.recorder = nil
-    }
-    
-    if c.pc != nil {
-        c.pc.Close()
-    }
+	if c.recorder != nil {
+		err := c.recorder.Close()
+		if err != nil {
+			fmt.Printf("Error closing recorder: %v\n", err)
+		} else {
+			fmt.Println("Recording saved and closed for user:", c.UserID)
+		}
+		c.recorder = nil
+	}
+
+	if c.pc != nil {
+		c.pc.Close()
+	}
 }
 
 func callNode(endpoint string, body interface{}) (string, error) {
-    jsonBody, _ := json.Marshal(body)
-    resp, err := http.Post(fmt.Sprintf("http://localhost:%s/api/voice/process-%s", strconv.Itoa(RestPort), endpoint), "application/json", bytes.NewBuffer(jsonBody)); if err != nil { 
-		return "", err 
+	jsonBody, _ := json.Marshal(body)
+	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/api/voice/process-%s", strconv.Itoa(RestPort), endpoint), "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
 	}
 
-    defer resp.Body.Close()
+	defer resp.Body.Close()
 
-    b, _ := io.ReadAll(resp.Body)
-    return string(b), nil
+	b, _ := io.ReadAll(resp.Body)
+	return string(b), nil
 }
 
 func (c *RTCClient) HandleUDP(payload []byte) {
 	packet := &rtp.Packet{}
 
 	if err := packet.Unmarshal(payload); err != nil {
-        fmt.Printf("Failed to unmarshal to RTP: %v\n", err)
-        return
-    }
+		fmt.Printf("Failed to unmarshal to RTP: %v\n", err)
+		return
+	}
 
 	if TestMode {
 		//fmt.Printf("Debug: SSRC=%d, Seq=%d, PayloadLen=%d\n", packet.SSRC, packet.SequenceNumber, len(packet.Payload))
@@ -134,7 +135,7 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 		}
 
 		c.recorder.WriteRTP(packet)
-    	c.recorderMutex.Unlock()
+		c.recorderMutex.Unlock()
 	}
 
 	TryBroadcastUDP(packet, c.ServerID, c.UserID, c.SSRC)
@@ -145,10 +146,11 @@ func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {
 		"op": 5,
 		"d": map[string]interface{}{
 			"user_id": UserID,
-			"ssrc": SSRC,
-			"delay" : 0,
+			"ssrc":    SSRC,
+			"delay":   0,
 		},
-	}); if err != nil {
+	})
+	if err != nil {
 		fmt.Printf("Failed to send RTC speaking data to webrtc socket: %v\n", err)
 		return
 	}
@@ -174,14 +176,14 @@ func (c *RTCClient) SendUDP(p *rtp.Packet, SSRC uint32) {
 
 func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	if c.pc != nil {
-		return;
+		return
 	}
 
 	pc, err := webrtcAPI.NewPeerConnection(webrtc.Configuration{})
 
-	if err != nil { 
-		fmt.Println("failed to make new pc "); 
-		return 
+	if err != nil {
+		fmt.Println("failed to make new pc ")
+		return
 	}
 
 	// create the single downstream tracks for Audio and Video multiplexing
@@ -193,6 +195,7 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		fmt.Printf("AddTrack audio: %v\n", err)
 		return
 	}
+
 	if _, err := pc.AddTrack(masterVideo); err != nil {
 		fmt.Printf("AddTrack video: %v\n", err)
 		return
@@ -218,15 +221,28 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 	log.Printf("Client %s joined", c.ServerID)
 
-	fullOffer, err :=  callNode("offer", map[string]interface{}{
-        "sdpFragment": sdpFragment,
-        "codecs":      codecs,
-    }); if err != nil {
-		fmt.Printf("Failed to process offer. Are you sure the Oldcord REST API is up?: %v\n", err)
-		return
+	fullOffer := sdpFragment
+	legacyOffer := true
+
+	if !strings.Contains(sdpFragment, "v=0") {
+		fullOfferTemp, err := callNode("offer", map[string]interface{}{
+			"sdpFragment": sdpFragment,
+			"codecs":      codecs,
+		})
+		if err != nil {
+			fmt.Printf("Failed to process offer. Are you sure the Oldcord REST API is up?: %v\n", err)
+			return
+		}
+
+		fullOffer = fullOfferTemp
+		legacyOffer = false
 	}
 
 	fmt.Printf("%s\n", fullOffer)
+
+	if legacyOffer {
+		fmt.Println("Handling legacy (2015-Jan 23 2017) offer...")
+	}
 
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -253,19 +269,28 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 	pionSDP := c.pc.LocalDescription().SDP
 
-	sctp := c.pc.SCTP().Transport()
-	dtlsParams, _ := sctp.GetLocalParameters()
-	fp := dtlsParams.Fingerprints[0]
-	actualFP := fp.Algorithm + " " + strings.ToUpper(fp.Value)
+	sdpAnswer := pionSDP
 
-	sdpAnswer, err :=  callNode("answer", map[string]interface{}{
-        "pionSdp":    pionSDP,
-		"publicIp":   IP,
-		"publicPort": Port,
-		"fingerprint": actualFP,
-    }); if err != nil {
-		fmt.Printf("Failed to make answer. Are you sure the Oldcord REST API is up?: %v\n", err)
-		return
+	if !legacyOffer {
+		sctp := c.pc.SCTP().Transport()
+		dtlsParams, _ := sctp.GetLocalParameters()
+		fp := dtlsParams.Fingerprints[0]
+		actualFP := fp.Algorithm + " " + strings.ToUpper(fp.Value)
+
+		sdpAnswerTemp, err := callNode("answer", map[string]interface{}{
+			"pionSdp":     pionSDP,
+			"publicIp":    IP,
+			"publicPort":  Port,
+			"fingerprint": actualFP,
+		})
+		if err != nil {
+			fmt.Printf("Failed to make answer. Are you sure the Oldcord REST API is up?: %v\n", err)
+			return
+		}
+
+		sdpAnswer = sdpAnswerTemp
+	} else {
+		fmt.Println("Handling legacy (2015-Jan 23 2017) answer...")
 	}
 
 	wsjson.Write(context.Background(), c.Socket, map[string]interface{}{

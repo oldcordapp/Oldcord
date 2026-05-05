@@ -40,6 +40,10 @@ const patcher = {
     // Fix client misidentification
     script = script.replace('__[STANDALONE]__', '');
 
+    script = script.replace(`c["default"].createSessionDescription(e,this.payloadType,this.remoteSDP,t,n,this.bitrate)`, `new RTCSessionDescription({type:e,sdp:this.remoteSDP})`); //fix 2016 sdp handling - theres no munging, no plan-b, so simple in 2015-2016, its beautiful
+    script = script.replace(`.src=URL.createObjectURL`, `.srcObject=`) //fix webrtc audio playback deprecation on 2015-2016
+    script = script.replace(`d(e,t,n,o,r)`, `n`) //fix sdp munging on 2015, other than that the existing code is unified-plan compliant. its beautiful. why the fuck did you mess up 2017 :sob:
+
     // Recaptcha support
     if (config.captcha_options.enabled)
       script = script.replaceAll(
@@ -627,6 +631,8 @@ const patcher = {
     //Just some last minute housekeeping ^
 
     // Just for visual verification that it is ptached by Oldcord LMAO
+
+    script = script.replace("returnt", "return t") //bug with voice because of patcher on 2015-2016
     script += '\n// Oldcord Patched';
 
     return script;
