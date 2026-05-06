@@ -185,8 +185,6 @@ router.post("/process-answer", (req: Request, res: Response) => {
             `a=ice-pwd:${answerSdp.ice.getPwd()}\n` +
             //`a=fingerprint:${fingerprint}\n` +
             `a=candidate:1 1 ${candidate.getTransport()} ${candidate.getFoundation()} ${candidate.getAddress()} ${candidate.getPort()} typ host\n`;
-
-            answer = answer.replace(`m=audio 0`, `m=audio 3240`)
         return res.status(200).send(answer);
     } catch (err: any) {
         logText(err, 'error');
