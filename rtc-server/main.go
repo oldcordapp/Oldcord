@@ -688,12 +688,15 @@ func main() {
 		log.Fatal("Invalid REST port")
 	}
 
+	PublicIP = false
+	
 	if len(os.Args) > 5 {
 		IP = string(os.Args[4])
+		PublicIP = true
 	}
 
 	RestPort = RestPortTemp //SHUT UP GOLANG IVE USED THIS PORT IN RTCCLIENT. YES I HAVE.
-	PublicIP = false
+	
 
 	RTC_SECRET_KEY = os.Getenv("RTC_SECRET_KEY");
 	IP = GetOutboundIP().String()
