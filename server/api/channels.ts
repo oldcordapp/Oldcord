@@ -171,7 +171,7 @@ router.patch(
             req.account.id,
             channel.id,
             AuditLogActionType.CHANNEL_UPDATE,
-            req.headers['x-audit-log-reason'] as string || null,
+            req.headers['x-audit-log-reason'] as string ?? null,
             auditChanges,
             {}
           );
@@ -464,7 +464,7 @@ router.post(
         req.account.id,
         webhook.id,
         AuditLogActionType.WEBHOOK_CREATE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         {}
       );
@@ -566,7 +566,7 @@ router.put(
           req.account.id,
           channel.id,
           actionType,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           auditOptions
         );
@@ -668,7 +668,7 @@ router.delete(
         req.account.id,
         channel.id,
         AuditLogActionType.CHANNEL_OVERWRITE_DELETE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         auditOptions
       );
@@ -945,7 +945,7 @@ router.delete(
           req.account.id,
           channel.id,
           AuditLogActionType.CHANNEL_DELETE,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           {}
         );

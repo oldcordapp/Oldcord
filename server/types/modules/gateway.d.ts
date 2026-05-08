@@ -26,7 +26,6 @@ declare module 'ws' {
     client_build?: string;
     plural_recipients?: boolean;
     channel_types_are_ints?: boolean;
-    isThirdPartyOrMobile?: boolean;
     wantsEtf?: boolean;
     cookieStore?: Record<string, string>;
     wantsZlib?: boolean;

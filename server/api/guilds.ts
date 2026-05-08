@@ -520,7 +520,7 @@ router.patch(
           req.account.id,
           req.guild.id,
           AuditLogActionType.GUILD_UPDATE,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           {}
         );
@@ -618,7 +618,7 @@ router.post(
           req.account.id,
           null,
           AuditLogActionType.MEMBER_PRUNE,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           [],
           {
             delete_member_days: days.toString(),
@@ -888,7 +888,7 @@ router.post(
         req.account.id,
         channel.id,
         AuditLogActionType.CHANNEL_CREATE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         {}
       );
@@ -953,7 +953,7 @@ router.patch(
             req.account.id,
             channel.id,
             AuditLogActionType.CHANNEL_UPDATE,
-            req.headers['x-audit-log-reason'] as string || null,
+            req.headers['x-audit-log-reason'] as string ?? null,
             auditChanges,
             {}
           );

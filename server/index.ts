@@ -99,34 +99,6 @@ if (globalUtils.config.email_config.enabled) {
 
 ctx.sessions = new Map<string, Session>();
 ctx.userSessions = new Map<string, Session[]>();
-ctx.rooms = [];
-ctx.MEDIA_CODECS = [
-  {
-    kind: 'audio',
-    mimeType: 'audio/opus',
-    clockRate: 48000,
-    channels: 2,
-    parameters: {
-      minptime: 10,
-      useinbandfec: 1,
-      usedtx: 1,
-    },
-    preferredPayloadType: 109,
-  },
-  {
-    kind: 'video',
-    mimeType: 'video/VP8',
-    clockRate: 90000,
-    rtcpFeedback: [
-      { type: 'ccm', parameter: 'fir' },
-      { type: 'nack' },
-      { type: 'nack', parameter: 'pli' },
-      { type: 'goog-remb' },
-    ],
-    preferredPayloadType: 120,
-  },
-];
-
 ctx.guild_voice_states = new Map(); //guild_id -> voiceState[]
 
 const portAppend = globalUtils.nonStandardPort ? ':' + config.port : '';

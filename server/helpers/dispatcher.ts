@@ -7,13 +7,19 @@ import type { Channel } from '../types/channel.ts';
 import type { Session } from '../types/session.ts';
 
 const dispatcher = {
-  dispatchEventTo: (user_id: string, type: string, payload: any): boolean => {
+  dispatchEventTo: async (user_id: string, type: string, payload: any): Promise<boolean> => {
     const sessions = ctx.userSessions.get(user_id);
 
     if (!sessions || !sessions.length) return false;
 
     for (let z = 0; z < sessions.length; z++) {
-      sessions[z].dispatch(type, payload);
+      const session = sessions[z];
+
+      const finalPayload = typeof payload === 'function' 
+        ? await payload(session) 
+        : payload;
+
+      session.dispatch(type, finalPayload);
     }
 
     return true;

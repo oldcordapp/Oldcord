@@ -21,16 +21,22 @@ type MultiplexTrack struct {
 	id       string
 	streamID string
 	kind     webrtc.RTPCodecType
+	ssrc     webrtc.SSRC
 	bindings map[webrtc.SSRC]*trackBinding
 }
 
-func NewMultiplexTrack(kind webrtc.RTPCodecType, id, streamID string) *MultiplexTrack {
+func NewMultiplexTrack(kind webrtc.RTPCodecType, id, streamID string, ssrc webrtc.SSRC) *MultiplexTrack {
 	return &MultiplexTrack{
 		id:       id,
 		streamID: streamID,
 		kind:     kind,
+		ssrc:     ssrc,
 		bindings: make(map[webrtc.SSRC]*trackBinding),
 	}
+}
+
+func (t *MultiplexTrack) SSRC() webrtc.SSRC {
+    return t.ssrc
 }
 
 func (t *MultiplexTrack) Bind(ctx webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {

@@ -728,7 +728,7 @@ router.post(
       const guy = req.account;
       const messageid = req.params.messageid as string;
       const channel = req.channel;
-      const manual = req.body.manual === true;
+      const manual = (req.body?.manual ?? false) === true;
 
       const success = await MessageService.acknowledgeMessage(
           guy.id,

@@ -18,7 +18,6 @@ declare global {
       client_build_date: Date;
       plural_recipients?: boolean;
       channel_types_are_ints?: boolean;
-      isThirdPartyOrMobile?: boolean;
       account: Account;
       member: Member;
       role: Role;

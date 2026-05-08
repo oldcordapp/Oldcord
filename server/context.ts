@@ -3,7 +3,7 @@ import type Emailer from "./helpers/emailer.ts";
 import type { MediaRelayServer } from "./mrserver.ts";
 import type { Config } from "./types/config.ts";
 import type { Session } from "./types/session.ts";
-import type { MediaCodec, Room, VoiceState } from "./types/voice.ts";
+import type { VoiceState } from "./types/voice.ts";
 import type { UdpServer } from "./udpserver.ts";
  
 interface AppContext {
@@ -18,8 +18,6 @@ interface AppContext {
     emailer: Emailer | null;
     config: Config | null; 
     mrServer: MediaRelayServer | null;
-    rooms: Room[];
-    MEDIA_CODECS: MediaCodec[];
     full_url: string;
     protocol_url: string;
 }
@@ -36,8 +34,6 @@ const ctx: AppContext = {
     emailer: null,
     config: null,
     mrServer: null,
-    rooms: [],
-    MEDIA_CODECS: [],
     full_url: "",
     protocol_url: ""
 };

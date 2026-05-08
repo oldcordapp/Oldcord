@@ -8,7 +8,6 @@ import { MessageService } from "./messageService.ts";
 import { UploadService } from "./uploadService.ts";
 import { deconstruct, generate } from "../../helpers/snowflake.ts";
 import { AccountService, PUBLIC_USER_SELECT } from "./accountService.ts";
-import type { User } from "../../types/user.ts";
 import type { Invite } from "../../types/invite.ts";
 import { MessageType } from "../../types/message.ts";
 import type { Role } from "../../types/role.ts";
@@ -16,6 +15,7 @@ import { ChannelType } from "../../types/channel.ts";
 import { ChannelService } from "./channelService.ts";
 import type WebSocket from 'ws';
 import ctx from "../../context.ts";
+import type { Session } from "../../types/session.ts";
 
 export const GuildService = {
     _formatResponse(guild: any): Guild {
@@ -47,7 +47,7 @@ export const GuildService = {
                     mentionable: role.mentionable
                 };
             }) || [],
-            emojis: guild.custom_emojis.map((custom_emoji: any) => {
+            emojis: (guild.custom_emojis || []).map((custom_emoji: any) => {
                 return {
                     id: custom_emoji.id,
                     name: custom_emoji.name,
@@ -58,11 +58,10 @@ export const GuildService = {
                     user: custom_emoji.user
                 }
             }) || [],
-            channels: guild.channels
-            ? guild.channels.map((channel: any) => {
+            channels: (guild.channels || []).map((channel: any) => {
                 return ChannelService._formatChannelObjectSimple(channel);
-            }) : [],
-            members: guild.members.map((member: any) => {
+            }) || [],
+            members: (guild.members || []).map((member: any) => {
                 return {
                     deaf: member.deaf,
                     mute: member.mute,
@@ -74,7 +73,7 @@ export const GuildService = {
                     }
                 }
             }) || [],
-            presences: guild.members.map((member: any) => {
+            presences: (guild.members || []).map((member: any) => {
                 return globalUtils.getUserPresence(member)
             }) || [],
             features: (guild.features as string[]) || [],
@@ -169,60 +168,87 @@ export const GuildService = {
             return false;
         }
     },
-    async addMember(user_id: string, guild_id: string): Promise<{
+    async addMember(user_id: string, guild_id: string, providedGuild?: any): Promise<{
       status: number,
+      data: Guild | null,
       error: {
         code: number,
         message: string
       } | null
     }> {
-        const guild = await prisma.guild.findUnique({
+        const guild = providedGuild || await prisma.guild.findUnique({
             where: { id: guild_id },
-            select: {
-                id: true,
-                system_channel_id: true,
-                members: { select: { user_id: true } },
+            include: {
+                channels: true,
                 roles: true,
-                name: true
+                members: { include: { user: true } } 
             }
         });
 
         if (!guild) {
-            return { status: 404, error: errors.response_404.UNKNOWN_GUILD };
+            return { status: 404, error: errors.response_404.UNKNOWN_GUILD, data: null };
         }
 
-        const basicUser = await prisma.user.findUnique({
-            where: {
-                id: user_id
-            },
+        const user = await prisma.user.findUnique({
+            where: { id: user_id },
             select: PUBLIC_USER_SELECT
         });
 
         const joinedAt = new Date().toISOString();
+
         await prisma.member.create({
             data: {
                 user_id: user_id,
                 guild_id: guild_id,
-                joined_at: joinedAt
+                joined_at: joinedAt,
+                roles: []
             }
         });
 
-        const fullGuildData = await this.getById(guild_id); 
-
-        await dispatcher.dispatchEventTo(user_id, 'GUILD_CREATE', fullGuildData);
-        await dispatcher.dispatchEventInGuild(guild_id, 'GUILD_MEMBER_ADD', {
-            roles: [],
-            user: globalUtils.miniUserObject(basicUser as User),
-            guild_id: guild_id,
-            joined_at: joinedAt,
+        const memberObj = {
             deaf: false,
             mute: false,
             nick: null,
+            roles: [],
+            joined_at: joinedAt,
+            user_id: user_id,
+            user: user
+        };
+
+        const fullGuildData = this._formatResponse({
+            ...guild,
+            members: [...(guild.members || []), memberObj]
+        });
+
+        await dispatcher.dispatchEventTo(user_id, 'GUILD_CREATE', (session: Session) => {
+            return {
+                ...fullGuildData,
+                channels: fullGuildData.channels?.map((channel) => ({
+                    ...channel,
+                    type: session.socket.channel_types_are_ints
+                        ? channel.type 
+                        : globalUtils.channelTypeToString(channel.type as number)
+                }))
+            };
+        });
+
+        await dispatcher.dispatchEventTo(user_id, 'GUILD_CREATE', (socket: WebSocket) => {
+          fullGuildData.channels?.map((channel) => {
+            return {
+              ...channel,
+              type: socket.channel_types_are_ints ? channel.type : globalUtils.channelTypeToString(parseInt(channel.type as string))
+            }
+          })
+        });
+
+        await dispatcher.dispatchEventInGuild(guild_id, 'GUILD_MEMBER_ADD', {
+            ...memberObj,
+            guild_id: guild_id,
         });
 
         await dispatcher.dispatchEventInGuild(guild.id, 'PRESENCE_UPDATE', {
             ...globalUtils.getUserPresence({
-                user: globalUtils.miniUserObject(basicUser as User),
+                user: user
             }),
             roles: [],
             guild_id: guild.id,
@@ -233,7 +259,7 @@ export const GuildService = {
                 guild.id,
                 guild.system_channel_id,
                 MessageType.GUILD_MEMBER_JOIN,
-                [basicUser as User],
+                [user],
             );
 
             await dispatcher.dispatchEventInChannel(
@@ -252,7 +278,8 @@ export const GuildService = {
 
         return {
             status: 200,
-            error: null
+            error: null,
+            data: fullGuildData
         }
     },
     async exists(guildId: string): Promise<boolean> {
@@ -284,6 +311,7 @@ export const GuildService = {
         guild.members.forEach(x => {
             x.roles
         })
+
         return this._formatResponse(guild);
     },
     async createGuildSubscription(user_id: string, guild_id: string): Promise<GuildSubscription | null> {

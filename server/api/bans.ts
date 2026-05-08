@@ -99,7 +99,7 @@ router.put(
         sender.id,
         member?.user.id,
         AuditLogActionType.MEMBER_BAN_ADD,
-        req.headers['x-audit-log-reason'] as string || req.body.reason || null,
+        req.headers['x-audit-log-reason'] as string ?? req.body?.reason ?? null,
         [],
         {}
       );
@@ -178,12 +178,10 @@ router.put(
 
 router.delete(
   '/:memberid',
-  memberMiddleware,
   guildPermissionsMiddleware('BAN_MEMBERS'),
   rateLimitMiddleware(
     "bans"
   ),
-  memberMiddleware,
   async (req: Request, res: Response) => {
     try {
       const sender = req.account;
@@ -224,7 +222,7 @@ router.delete(
         sender.id,
         req.params.memberid as string,
         AuditLogActionType.MEMBER_BAN_REMOVE,
-        req.headers['x-audit-log-reason'] as string || req.body.reason || null,
+        req.headers['x-audit-log-reason'] as string ?? req.body?.reason ?? null,
         [],
         {}
       );

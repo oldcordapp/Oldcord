@@ -64,7 +64,7 @@ router.delete(
         req.account.id,
         invite.code, 
         AuditLogActionType.INVITE_DELETE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         {}
       );

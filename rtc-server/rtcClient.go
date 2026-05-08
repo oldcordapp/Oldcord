@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
@@ -178,6 +179,11 @@ func (c *RTCClient) SendUDP(p *rtp.Packet, SSRC uint32) {
 	}
 }
 
+func generateCNAME() string {
+    newUUID := uuid.New().String()
+    return fmt.Sprintf("{%s}", newUUID)
+}
+
 func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	if c.pc != nil {
 		return
@@ -192,8 +198,10 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		return
 	}
 
+	clientCNAME := generateCNAME()
+
 	// create the single downstream tracks for Audio and Video multiplexing
-	masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", "audio")
+	masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", clientCNAME, webrtc.SSRC(c.SSRC))
 	//masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", "video")
 
 	// add them to the peer connection immediately so they are included in the initial Offer/Answer

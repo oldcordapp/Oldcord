@@ -141,6 +141,32 @@ async function handlePresence(socket: WebSocket, packet: GatewayPresencePacket) 
   await socket.session.updatePresence(setStatusTo, gameField, true, false);
 }
 
+function checkVerification(guild: any, member: any, user: any): { canAction: boolean, error?: string } {
+    const hasRoles = Array.isArray(member.roles) && member.roles.length > 0;
+    const isOwner = guild.owner_id === user.id;
+    const bypass = isOwner || hasRoles;
+
+    if (guild.verification_level === 0 || bypass) return { canAction: true };
+
+    const now = Date.now();
+    const accountAge = now - Date.parse(user.created_at);
+    const memberAge = now - Date.parse(member.joined_at);
+
+    if (guild.verification_level >= 1 && !user.verified) 
+        return { canAction: false, error: "You must verify your email." };
+    if (guild.verification_level >= 2 && accountAge < (5 * 60 * 1000)) 
+        return { canAction: false, error: "Account too new." };
+    if (guild.verification_level >= 3 && memberAge < (10 * 60 * 1000)) 
+        return { canAction: false, error: "Member age too low." };
+    if (guild.verification_level >= 4 && !user.mfa_enabled) 
+        return { canAction: false, error: "Phone verification required." };
+
+    //The error isn't used for now but wtv right its just for debugging purposes I guess
+
+    return { canAction: true };
+}
+
+
 async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePacket) {
   const { guild_id, channel_id, self_mute, self_deaf } = packet.d;
   const { user_id, session } = socket;
@@ -152,11 +178,27 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
   if (guild_id === null && channel_id === null) {
     if (socket.current_guild_id && user_id) {
       const voiceStates = ctx.guild_voice_states.get(socket.current_guild_id) || [];
-      const index = voiceStates.findIndex((x) => x.user_id === user_id);
+      const existingIndex = voiceStates.findIndex(v => v.user_id === user_id);
 
-      if (index !== -1) {
-        voiceStates.splice(index, 1);
+      const newState = {
+          user_id: user_id!,
+          session_id: socket.session.id,
+          guild_id: guild_id,
+          channel_id: channel_id,
+          mute: false,
+          deaf: false,
+          self_deaf: self_deaf,
+          self_mute: self_mute,
+          self_video: false,
+          suppress: false,
+      };
+
+      if (existingIndex !== -1) {
+          voiceStates[existingIndex] = newState;
+      } else {
+          voiceStates.push(newState);
       }
+      ctx.guild_voice_states.set(socket.current_guild_id, voiceStates);
 
       await dispatcher.dispatchEventInGuild(socket.current_guild_id, 'VOICE_STATE_UPDATE', {
         channel_id: null,
@@ -192,12 +234,59 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
       },
       select: {
         type: true,
-        user_limit: true
+        user_limit: true,
+        guild: {
+          select: {
+            verification_level: true,
+            id: true
+          }
+        }
       }
     });
 
     if (!channel || channel.type !== ChannelType.VOICE || channel.user_limit === undefined) {
       return;
+    }
+
+    if (!channel.guild?.verification_level) {
+      return;
+    }
+
+    if (channel.guild.verification_level > 0) {
+      const memberData = await prisma.member.findUnique({
+        where: {
+          guild_id_user_id: {
+            guild_id: channel.guild.id,
+            user_id: socket.user_id!
+          }
+        },
+        select: {
+          joined_at: true,
+          user: {
+            select: {
+              verified: true,
+              mfa_enabled: true,
+              created_at: true
+            }
+          }
+        }
+      });
+
+      if (!memberData || !memberData.user) {
+        return;
+      }
+
+      const verif = checkVerification(channel.guild, memberData, memberData.user);
+
+      if (!verif.canAction) {
+        socket.session.dispatch('VOICE_STATE_UPDATE', {
+            guild_id: guild_id,
+            channel_id: null,
+            user_id: user_id,
+            session_id: socket.session.id,
+        });
+        return;
+      }
     }
   }
 

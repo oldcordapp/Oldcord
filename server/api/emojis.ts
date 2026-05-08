@@ -108,7 +108,7 @@ router.post('/', guildPermissionsMiddleware('MANAGE_EMOJIS'), async (req: Reques
       req.account.id,
       emoji_id,
       AuditLogActionType.EMOJI_CREATE,
-      req.headers['x-audit-log-reason'] as string || null,
+      req.headers['x-audit-log-reason'] as string ?? null,
       auditChanges,
       {}
     );
@@ -217,7 +217,7 @@ router.patch(
           req.account.id,
           emoji.id,
           AuditLogActionType.EMOJI_UPDATE,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           {}
         );
@@ -310,7 +310,7 @@ router.delete(
         req.account.id,
         emoji_id as string,
         AuditLogActionType.EMOJI_DELETE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         {}
       );

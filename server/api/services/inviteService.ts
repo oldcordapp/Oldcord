@@ -60,11 +60,21 @@ export const InviteService = {
         status: number,
         error: string | null
     }> {
-        const invite = await this.getInviteByCode(code);
+        const invite = await prisma.invite.findUnique({
+            where: { code },
+            include: {
+                guild: {
+                    include: {
+                        channels: true,
+                        roles: true,
+                        members: { include: { user: true } }
+                    }
+                },
+                inviter: true,
+            }
+        });
 
-        if (!invite) {
-            return { status: 404, error: 'UNKNOWN_GUILD' };
-        }
+        if (!invite) return { status: 404, error: 'UNKNOWN_INVITE' };
 
         const canJoin = await GuildService.canJoin(user_id, invite.guild.id);
 
@@ -72,27 +82,30 @@ export const InviteService = {
             return { status: 403, error: canJoin.reason as string };
         }
 
-        if (invite.max_uses > 0 && invite.uses && invite.uses >= invite.max_uses) {
+        if (invite.maxUses && invite.maxUses > 0 && invite.uses && invite.uses >= invite.maxUses) {
             return { status: 403, error: 'INVITE_MAX_USES_REACHED' };
         }
 
-        await prisma.invite.update({
-            where: { code },
-            data: {
-                uses: { increment: 1 }
+        return await prisma.$transaction(async (tx) => {
+            await tx.invite.update({
+                where: { code },
+                data: { uses: { increment: 1 } }
+            });
+
+            const result = await GuildService.addMember(user_id, invite.guild.id, invite.guild);
+            
+            if (result.status !== 200) {
+                return { 
+                    status: result.status, 
+                    error: result.error?.message || "Internal Server Error" 
+                };
             }
+
+            return result.data!;
+        }).catch(err => {
+            logText(err, 'error');
+            return { status: 500, error: "Internal Server Error" };
         });
-
-        let result = await GuildService.addMember(user_id, invite.guild.id);
-
-        if (result.status !== 200) {
-            return {
-                status: result.status,
-                error: result.error?.message ?? null
-            }
-        }
-
-        return GuildService._formatResponse(invite.guild);
     },
     async createInvite(guild_id: string, channel_id: string, sender_id: string, temporary: boolean, max_uses: number, max_age: number, xkcdpass: boolean, regenerate: boolean): Promise<Invite | null> {
         try {

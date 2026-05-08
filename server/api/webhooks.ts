@@ -85,7 +85,7 @@ router.patch(
           req.account.id,
           webhook.id,
           AuditLogActionType.WEBHOOK_UPDATE, // WEBHOOK_UPDATE
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           {}
         );
@@ -120,7 +120,7 @@ router.delete(
         req.account.id,
         webhook.id,
         AuditLogActionType.WEBHOOK_DELETE,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         auditChanges,
         {}
       );

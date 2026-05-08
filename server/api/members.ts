@@ -51,7 +51,7 @@ router.delete(
         sender.id,
         member.user.id,
         AuditLogActionType.MEMBER_KICK,
-        req.headers['x-audit-log-reason'] as string || null,
+        req.headers['x-audit-log-reason'] as string ?? null,
         [],
         {}
       );
@@ -215,7 +215,7 @@ router.patch(
           req.account.id,
           member.user.id,
           AuditLogActionType.MEMBER_UPDATE,
-          req.headers['x-audit-log-reason'] as string || null,
+          req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
           {}
         );
@@ -274,7 +274,7 @@ router.patch(
             req.account.id,
             member.user.id,
             AuditLogActionType.MEMBER_ROLE_UPDATE,
-            req.headers['x-audit-log-reason'] as string || null,
+            req.headers['x-audit-log-reason'] as string ?? null,
             auditChanges,
             {}
         );

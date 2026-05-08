@@ -366,7 +366,7 @@ class Bootloader {
         ).text();
       } else
         html = await (
-          await fetch(`${assets_cdn_url}/assets/clients/${this.release_date === 'thirdPartyOrMobile' ? 'october_5_2017' : this.release_date}/app.html`)
+          await fetch(`${assets_cdn_url}/assets/clients/${this.release_date}/app.html`)
         ).text();
     } catch (e) {
       utils.loadLog('Fatal error occurred. Please check the console.', 'error');

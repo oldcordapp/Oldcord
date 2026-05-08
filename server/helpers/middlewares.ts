@@ -105,8 +105,8 @@ async function clientMiddleware(req: Request, res: Response, next: NextFunction)
     let cookies = req.cookies;
 
     if (!cookies || (!cookies['release_date'] && !isSameHost) || !isBrowser) {
-      cookies['release_date'] = 'thirdPartyOrMobile';
-      res.cookie('release_date', 'thirdPartyOrMobile');
+      cookies['release_date'] = config.default_client_build || 'october_5_2017';
+      res.cookie('release_date', config.default_client_build || 'october_5_2017');
     }
 
     if (
@@ -919,10 +919,79 @@ function channelPermissionsMiddleware(permission: string) {
           if (!channel.recipients.some((x) => x.id == sender.id)) {
             return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
           }
-        }
+        } 
       }
 
       return next();
+    }
+
+    if (channel.guild_id) {
+      const memberData = await prisma.member.findUnique({
+        where: {
+          guild_id_user_id: {
+            guild_id: channel.guild_id,
+            user_id: sender.id
+          }
+        },
+        include: {
+          guild: {
+            select: { verification_level: true, owner_id: true }
+          },
+        }
+      });
+
+      if (!memberData || !memberData.guild) {
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+      }
+
+      const guild = memberData.guild;
+
+      if (!guild.verification_level) {
+        guild.verification_level = 0;
+      }
+
+      const hasRoles = Array.isArray(memberData.roles) && memberData.roles.length > 0;
+      const isOwner = guild.owner_id === sender.id;
+      const bypass = isOwner || hasRoles;
+
+      const now = Date.now();
+
+      const accountAgeMs = now - Date.parse(sender.created_at!);
+      const memberAgeMs = now - Date.parse(memberData.joined_at);
+      
+      const FIVE_MINS = 5 * 60 * 1000;
+      const TEN_MINS = 10 * 60 * 1000;
+
+      if (guild.verification_level > 0 && !bypass) {
+         // Level 1: Must have verified email
+
+        if (guild.verification_level === 1) {
+          if (!sender.verified && ctx.config?.instance.flags.includes("VERIFIED_EMAIL_REQUIRED")) {
+            return res.status(403).json(errors.response_403.ACCOUNT_VERIFICATION_REQUIRED);
+          }
+        }
+
+        // Level 2: Must be registered > 5 mins
+        if (guild.verification_level === 2) {
+          if (accountAgeMs < FIVE_MINS && !ctx.config?.instance.flags.includes("BYPASS_GUILD_VERIF_LEVEL_2")) {
+            return res.status(403).json(errors.response_403.ACCOUNT_VERIFICATION_REQUIRED);
+          }
+        }
+
+        // Level 3: Must be member > 10 mins
+        if (guild.verification_level === 3) {
+          if (memberAgeMs < TEN_MINS) {
+            return res.status(403).json(errors.response_403.ACCOUNT_VERIFICATION_REQUIRED);
+          }
+        }
+
+        // Level 4: Verified Phone Required
+        if (guild.verification_level === 4) {
+          if (!sender.mfa_enabled && !ctx.config?.instance.flags.includes("VERIFIED_PHONE_REQUIRED")) {
+            return res.status(403).json(errors.response_403.ACCOUNT_VERIFICATION_REQUIRED);
+          }
+        }
+      }
     }
 
     const check = await permissions.hasChannelPermissionTo(

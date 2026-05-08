@@ -239,6 +239,17 @@ router.patch(
         const retAccount = await prisma.user.findUnique({
           where: {
             email: account.email
+          },
+          select: {
+            token: true,
+            avatar: true,
+            discriminator: true,
+            email: true,
+            flags: true,
+            id: true,
+            username: true,
+            verified: true,
+            mfa_enabled: true
           }
         });
 
@@ -391,7 +402,6 @@ router.patch(
       account = new_account as Account;
 
       account['settings'] = undefined;
-      account['token'] = undefined;
       account['password'] = undefined;
       account['disabled_until'] = undefined;
       account['disabled_reason'] = undefined;

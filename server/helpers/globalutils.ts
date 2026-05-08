@@ -386,7 +386,7 @@ const globalUtils = {
     return selected.entries().toArray().join('-');
   },
   addClientCapabilities: (client_build: string, obj: any): boolean => {
-    if (!client_build || client_build === 'thirdPartyOrMobile' || client_build === 'undefined') {
+    if (!client_build || client_build === 'undefined') {
        client_build = 'october_5_2017';
     }
 
@@ -409,7 +409,6 @@ const globalUtils = {
     obj.client_build_date = date;
     obj.plural_recipients = plural_recipients;
     obj.channel_types_are_ints = plural_recipients;
-    obj.isThirdPartyOrMobile = client_build === 'thirdPartyOrMobile';
 
     return true;
   },

@@ -76,16 +76,16 @@ const patcher = {
 
     if (!utils.isOldplungerEnabled()) {
       if (getEnabledPatches().includes('modernizeWebRTC')) {
-        script = script.replaceAll(
-          `l(e,t,n,a,i,(r||4e4)/1e3)`,
-          `window.oldcord.fixSessionDescription2016(e,t,n,a,i,(r||4e4)/1e3)`,
-        ); // i tried to get you to cooperate so this is what you get
-        script = script.replaceAll(
-          `e.selectProtocol(a,r)`,
-          `e.selectProtocol(a,window.oldcord.truncateSDP(r))`,
-        ); //Jan 23 2017
-        script = script.replaceAll(`^a=ice|opus|VP8`, `^a=ice|a=extmap|a=fingerprint|opus|VP8`); //2017-2018 fix
-        script = script.replaceAll(`^a=ice|opus|VP9`, `^a=ice|a=extmap|a=fingerprint|opus|VP9`); //2017-2018 fix
+        //script = script.replaceAll(
+          //`l(e,t,n,a,i,(r||4e4)/1e3)`,
+          //`window.oldcord.fixSessionDescription2016(e,t,n,a,i,(r||4e4)/1e3)`,
+        //); // i tried to get you to cooperate so this is what you get
+        //script = script.replaceAll(
+         // `e.selectProtocol(a,r)`,
+         // `e.selectProtocol(a,window.oldcord.truncateSDP(r))`,
+        //); //Jan 23 2017
+        //script = script.replaceAll(`^a=ice|opus|VP8`, `^a=ice|a=extmap|a=fingerprint|opus|VP8`); //2017-2018 fix
+        //script = script.replaceAll(`^a=ice|opus|VP9`, `^a=ice|a=extmap|a=fingerprint|opus|VP9`); //2017-2018 fix
         script = script.replaceAll(
           't.prototype._generateSessionDescription=function(e){var t=this.audioCodec,n=this.audioPayloadType,o=this.videoCodec,a=this.videoPayloadType,r=this.rtxPayloadType,i=this.sdp;if(null==t||null==n||null==o||null==a||null==r||null==i)throw new Error("payload cannot be null");var s=this._getSSRCs(),u=(0,c.generateSessionDescription)(e,i,this.direction,t,n,40,o,a,2500,r,s);return this.emit(e,u),Promise.resolve(u)}',
           't.prototype._generateSessionDescription=function(e){var t=this;return"answer"===e?this._pc._pc.createAnswer().then(function(e){return t.emit("answer",e),e}):this._pc._pc.createOffer().then(function(e){return t.emit("offer",e),e})}',
@@ -100,286 +100,26 @@ const patcher = {
         ); //2015 - first 2017 build fix
         script = script.replaceAll(
           /(var \w+=(\w+)\._pc=new RTCPeerConnection\({iceServers:\w+,sdpSemantics:)"plan-b"(.+?\);)/g,
-          '$1"unified-plan"$3$2._audioTransceiver=$2._pc.addTransceiver("audio",{direction:"recvonly"});$2._videoTransceiver=$2._pc.addTransceiver("video",{direction:"recvonly"});',
+          '$1"unified-plan"$3$2._audioTransceiver=$2._pc.addTransceiver("audio",{direction:"recvonly"});$2._videoTransceiver=$2._pc.addTransceiver("video",{direction:"sendrecv"});',
         );
-        script = script.replaceAll(
-          /case"video":[a-zA-Z]\(function\(\)\{return t\._handleVideo\(t\.input\.getVideoStreamId\(\)\)\}\);break;/g,
+       script = script.replaceAll(
+         /case"video":[a-zA-Z]\(function\(\)\{return t\._handleVideo\(t\.input\.getVideoStreamId\(\)\)\}\);break;/g,
           `case"video":(async()=>{while(!t._fpc||!t._fpc._connected)await new Promise(e => setTimeout(e,50));t._handleVideo(t.input.getVideoStreamId())})();break;`,
-        ); //2017-2018
+       ); //2017-2018
         script = script.replaceAll(
           /[a-zA-Z]\(function\(\)\{return t\._handleVideo\(t\.input\.getVideoURL\(\)\)\}\);/g,
-          `(async()=>{while(!t._fpc||!t._fpc._connected)await new Promise(e=>setTimeout(e,50));t._handleVideo(t.input.getVideoURL())})();`,
-        ); //very early 2017 fix
-        script = script.replaceAll(`this._mute||!this._speaking`, `this._mute`); //2017 fix
+         `(async()=>{while(!t._fpc||!t._fpc._connected)await new Promise(e=>setTimeout(e,50));t._handleVideo(t.input.getVideoURL())})();`,
+       ); //very early 2017 fix
+       script = script.replaceAll(`this._mute||!this._speaking`, `this._mute`); //2017 fix
         script = script.replaceAll(
-          `this._mute||this._speakingFlags===s.SpeakingFlags.NONE`,
-          `this._mute`,
-        ); //2018
+         `this._mute||this._speakingFlags===s.SpeakingFlags.NONE`,
+         `this._mute`,
+      ); //2018
 
         // Rewrite setRemoteDescription to unified-plan based of current setLocalDescription's offer in a similar manner to modern Discord's
-        (function () {
-          if (window.oldcord && !window.oldcord.webRTCPatch) {
-            window.oldcord.webRTCPatch = {};
-          }
-
-          if (window.oldcord.webRTCPatch.isPatched) {
-            return;
-          }
-
-          if (!window.oldcord.truncateSDP) {
-            window.oldcord.truncateSDP = function (sdp) {
-              const filterRegex = new RegExp('^a=ice|a=extmap|a=fingerprint|opus|VP8|0 rtx', 'i');
-              const lines = sdp.split(/\r\n|\n/);
-              const filteredLines = lines.filter((line) => filterRegex.test(line));
-              const uniqueLines = [...new Set(filteredLines)];
-
-              return uniqueLines.join('\n');
-            };
-          }
-
-          if (!window.oldcord.fixSessionDescription2016) {
-            window.oldcord.fixSessionDescription2016 = function (
-              type,
-              audioPayloadType,
-              sdp,
-              direction,
-              unknown,
-              bitrate = 6400 / 100,
-            ) {
-              function replaceSDP(sdp, audioPayloadType) {
-                return sdp.replace(`ICE/SDP`, `RTP/SAVPF ` + audioPayloadType).trim();
-              }
-
-              const defaults = [0, 'default', !0];
-
-              sdp = replaceSDP(sdp, audioPayloadType);
-              unknown = [defaults].concat(unknown);
-
-              const formattedUnknown = unknown
-                .map(function (e, t) {
-                  return t;
-                })
-                .join(' ');
-
-              const u = unknown.map(function (e, t) {
-                const i = e[0];
-                const r = e[1];
-                const s = e[2];
-                return s
-                  ? sdp +
-                      '\na=' +
-                      (direction === 'sendrecv' && t === 0 ? 'sendrecv' : 'sendonly') +
-                      '\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\na=mid:' +
-                      t +
-                      '\nb=AS:' +
-                      bitrate +
-                      '\na=msid:' +
-                      r +
-                      '-' +
-                      i +
-                      ' ' +
-                      r +
-                      '-' +
-                      i +
-                      '\na=rtcp-mux\na=rtpmap:' +
-                      audioPayloadType +
-                      ' opus/48000/2\na=setup:actpass\na=ssrc:' +
-                      i +
-                      ' cname:' +
-                      r +
-                      '-' +
-                      i
-                  : 'm=audio 0 RTP/SAVPF ' +
-                      audioPayloadType +
-                      '\nc=IN IP4 0.0.0.0\na=inactive\na=rtpmap:' +
-                      audioPayloadType +
-                      ' NULL/0';
-              });
-
-              return (
-                [
-                  'v=0\no=- 6054093392514871408 0 IN IP4 127.0.0.1\ns=-\nt=0 0\na=group:BUNDLE ' +
-                    formattedUnknown +
-                    '\na=msid-semantic:WMS *',
-                ]
-                  .concat(u)
-                  .join('\n')
-                  .trim() + '\n'
-              );
-            };
-          }
-
-          window.oldcord.webRTCPatch.isPatched = true;
-          window.oldcord.webRTCPatch.previousDescription = new WeakMap();
-
-          const originalSetLocalDescription = RTCPeerConnection.prototype.setLocalDescription;
-          const originalSetRemoteDescription = RTCPeerConnection.prototype.setRemoteDescription;
-
-          const getHeader = (sdp) => sdp.split('\r\nm=')[0];
-          const getMediaBlocks = (sdp) => {
-            const parts = sdp.split(/\r?\nm=/);
-            return parts.length > 1 ? parts.slice(1).map((block) => 'm=' + block.trim()) : [];
-          };
-          const getMediaType = (block) => (block.match(/^m=(\w+)/) || [])[1];
-          const getDirection = (block) =>
-            (block.match(/a=(sendrecv|sendonly|recvonly|inactive)/) || [])[0];
-
-          const parseExtmaps = (mediaBlock) => {
-            const extmaps = new Map();
-            const lines = mediaBlock.split(/\r?\n/);
-            for (const line of lines) {
-              const match = line.match(/^a=extmap:(\d+)\s+(.*)$/);
-              if (match) {
-                const id = parseInt(match[1], 10);
-                const uri = match[2].trim();
-                extmaps.set(uri, id);
-              }
-            }
-            return extmaps;
-          };
-
-          RTCPeerConnection.prototype.setLocalDescription = function (description) {
-            if (description) {
-              window.oldcord.webRTCPatch.previousDescription.set(this, description);
-            }
-            return originalSetLocalDescription.apply(this, arguments);
-          };
-
-          if (
-            release_date.includes('_2016') ||
-            release_date.includes('_2015') ||
-            release_date === 'january_23_2017'
-          ) {
-            return;
-          }
-
-          RTCPeerConnection.prototype.setRemoteDescription = async function (description) {
-            if (!/Chrome/.test(navigator.userAgent) || !description) {
-              if (description) {
-                window.oldcord.webRTCPatch.previousDescription.set(this, description);
-              }
-              return originalSetRemoteDescription.apply(this, arguments);
-            }
-
-            const previousDescription = window.oldcord.webRTCPatch.previousDescription.get(this);
-            if (!previousDescription) {
-              console.warn(
-                '[SDP Patcher] No corresponding description found. Applying answer as-is.',
-              );
-              window.oldcord.webRTCPatch.previousDescription.set(this, description);
-              return originalSetRemoteDescription.apply(this, arguments);
-            }
-
-            const previousMBlocks = getMediaBlocks(previousDescription.sdp);
-            const currentMBlocks = getMediaBlocks(description.sdp);
-
-            if (currentMBlocks.length === 0) {
-              console.error('[SDP Patcher] The description has no media blocks.');
-              return originalSetRemoteDescription.apply(this, arguments);
-            }
-
-            if (previousMBlocks.length > currentMBlocks.length) {
-              console.log(
-                `[SDP Patcher] Offer/Answer m-block mismatch (${previousMBlocks.length} > ${currentMBlocks.length}). Adding missing sections.`,
-              );
-
-              for (let i = currentMBlocks.length; i < previousMBlocks.length; i++) {
-                const missingMBlock = previousMBlocks[i];
-                const missingMediaType = getMediaType(missingMBlock);
-
-                const templateBlock =
-                  currentMBlocks.find((b) => getMediaType(b) === missingMediaType) ||
-                  currentMBlocks[0];
-                const newBlockLines = templateBlock.split(/\r?\n/);
-
-                const previousMDirection = getDirection(missingMBlock);
-                let currentMDirection = previousMDirection;
-                if (previousMDirection === 'a=sendonly') {
-                  currentMDirection = 'a=recvonly';
-                } else if (previousMDirection === 'a=recvonly') {
-                  currentMDirection = 'a=sendonly';
-                }
-
-                const directionIndex = newBlockLines.findIndex((line) =>
-                  line.match(/a=(sendrecv|sendonly|recvonly|inactive)/),
-                );
-                if (directionIndex > -1 && currentMDirection) {
-                  newBlockLines[directionIndex] = currentMDirection;
-                } else if (currentMDirection) {
-                  newBlockLines.push(currentMDirection);
-                }
-
-                newBlockLines[0] = newBlockLines[0].replace(/^m=\w+/, `m=${missingMediaType}`);
-                currentMBlocks.push(newBlockLines.join('\r\n'));
-              }
-            }
-
-            const fixedMBlocks = currentMBlocks.map((answerBlock, index) => {
-              const offerBlock =
-                previousMBlocks.find((b) => getMediaType(b) === getMediaType(answerBlock)) ||
-                previousMBlocks[index];
-
-              if (!offerBlock) return answerBlock;
-
-              const offerExtmaps = parseExtmaps(offerBlock);
-              if (offerExtmaps.size === 0) return answerBlock;
-
-              const answerLines = answerBlock.split(/\r?\n/);
-              const newAnswerLines = [];
-
-              for (const line of answerLines) {
-                if (line.startsWith('a=extmap:')) {
-                  const match = line.match(/^a=extmap:(\d+)\s+(.*)$/);
-                  if (match) {
-                    const answerUri = match[2].trim();
-                    if (offerExtmaps.has(answerUri)) {
-                      const correctId = offerExtmaps.get(answerUri);
-                      newAnswerLines.push(`a=extmap:${correctId} ${answerUri}`);
-                    } else {
-                      console.warn(
-                        `[SDP Patcher] Discarding unsupported extmap from answer: ${line}`,
-                      );
-                    }
-                  }
-                } else {
-                  newAnswerLines.push(line);
-                }
-              }
-              return newAnswerLines.join('\r\n');
-            });
-
-            const sdpHeader = getHeader(description.sdp);
-            let finalSdp = sdpHeader + '\r\n' + fixedMBlocks.join('\r\n');
-
-            let midIndex = 0;
-            finalSdp = finalSdp.replace(/^a=mid:.*$/gm, () => `a=mid:${midIndex++}`);
-
-            const midCount = (finalSdp.match(/^m=/gm) || []).length;
-            if (midCount > 0) {
-              const newMidList = Array.from({ length: midCount }, (_, i) => i).join(' ');
-              if (finalSdp.includes('a=group:BUNDLE')) {
-                finalSdp = finalSdp.replace(/^a=group:BUNDLE.*$/gm, `a=group:BUNDLE ${newMidList}`);
-              }
-            }
-
-            finalSdp = finalSdp.replace(/(\r?\n){2,}/g, '\r\n').trim() + '\r\n';
-
-            finalSdp = 'v=0' + finalSdp.split('v=0').pop();
-
-            const newDescription = new RTCSessionDescription({
-              type: 'answer',
-              sdp: finalSdp,
-            });
-
-            console.log('[SDP Patcher] Original Answer SDP:\n', description.sdp);
-            console.log('[SDP Patcher] Modified Answer SDP:\n', newDescription.sdp);
-
-            window.oldcord.webRTCPatch.previousDescription.set(this, description);
-            return originalSetRemoteDescription.call(this, newDescription);
-          };
-        })();
       }
 
+      script = script.replaceAll(`n.play(),t(n)`, `n.muted=!0,n.onloadedmetadata=function(){n.play(),t(n)}`)
       if (getEnabledPatches().includes('forceWebRtcP2P')) {
         script = script.replaceAll(/.p2p=./g, `.p2p=true`);
       }
@@ -388,8 +128,8 @@ const patcher = {
         `.src=URL.createObjectURL(this._stream)`,
         `.srcObject=this._stream`,
       ); //  deprecation for webrtc fix
-      script = script.replaceAll(`"sdparta_"+`, ``); //firefox webrtc doesnt like non numeric values as mid
-      script = script.replaceAll(`sdparta_`, ``);
+      //script = script.replaceAll(`"sdparta_"+`, ``); //firefox webrtc doesnt like non numeric values as mid
+      //script = script.replaceAll(`sdparta_`, ``);
 
       if (/Firefox/.test(navigator.userAgent)) {
         script = script.replaceAll(
@@ -642,11 +382,14 @@ const patcher = {
 
     //script = script.replace(`(0,a.truncateSDP)(t)`, `{sdp:t,codecs:m(t).codecs}`);
 
-    script = script.replace(`sdp:(`, `sdp:e,legacy_sdp:(`)
-    //script = script.replace(`return this.emit(e, u)`, `return this.emit(e, u)`)
-    // This captures the 'type' variable name using $1 and replaces the sdp variable with 't'
+    /*
+    script = script.replace(
+      /\.prototype\._mungeLocalDescription\s*=\s*function\s*\(([a-zA-Z0-9_]+)\)\s*\{/, 
+      `.prototype._mungeLocalDescription=function($1){$1.sdp=$1.sdp.replace(/a=recvonly/g, 'a=sendrecv');`
+    );
+    */
+    script = script.replace(`sdp:(`, `sdp:typeof(e)==='object'?e.sdp:e,legacy_sdp:(`)
     script = script.replace(/return\s+new\s+RTCSessionDescription\(\{\s*type\s*:\s*(\w+)\s*,\s*sdp\s*:\s*\w+\s*\}\)/g, 'return new RTCSessionDescription({type:$1,sdp:t})');
-    //script = script.replace(`var g=[];`, `var g=[];return new RTCSessionDescription({type: e, sdp: t})`)
     script = script.replace("returnt", "return t") //bug with voice because of patcher on 2015-2016
     script += '\n// Oldcord Patched';
 
@@ -655,3 +398,5 @@ const patcher = {
 };
 
 export { patcher };
+
+//{"op":12,"d":{"audio_ssrc":3582261968,"video_ssrc":1997794597}}

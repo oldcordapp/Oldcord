@@ -451,6 +451,7 @@ class session implements Session {
       return;
     }
 
+    const readyGuilds: Guild[] = [];
     const merged_members: Member[][] = []; 
     const allUsers = new Map<string, any>();
 
@@ -464,36 +465,27 @@ class session implements Session {
         },
         include: {
           members: { 
-              where: { user_id: this.user.id },
-              include: { user: true }
+            include: { user: true }
           },
           roles: true,
           channels: true
         }
       });
 
-      let guilds = guilds_rows.map((guild_row) => {
-        return GuildService._formatResponse(guild_row);
-      });
+      for (const guild_row of guilds_rows) {
+        let guild = GuildService._formatResponse(guild_row);
 
-      if (this.user.bot) {
-        for (let guild of guilds) {
+        if (this.user.bot) {
           this.guildCache.push(guild);
-
-          guild = {
-            id: guild.id,
-            unavailable: true,
-          }; //bots cant get this here idk
+          continue; //for bots dont go further
         }
-      } else {
-        for (let guild of guilds) {
-          if (guild.unavailable) {
-            guilds = guilds.filter((x) => x.id !== guild.id);
-            this.unavailable_guilds.push(guild);
-            continue;
-          }
 
-          if (guild.webhooks && Array.isArray(guild.webhooks)) {
+        if (guild.unavailable) {
+          this.unavailable_guilds.push(guild);
+          continue;
+        }
+
+         if (guild.webhooks && Array.isArray(guild.webhooks)) {
             guild.webhooks = guild.webhooks.map((webhook) => {
               const { token, ...sanitizedWebhook } = webhook;
 
@@ -501,15 +493,9 @@ class session implements Session {
             });
           }
 
-          const guildMembers = await prisma.member.findMany({
-            where: { guild_id: guild.id },
-            include: {
-              user: true
-            }
-          });
-
-          const formattedMembers = guildMembers.map((m) => {
+          const formattedMembers = guild_row.members?.map((m) => {
             const miniUser = globalUtils.miniUserObject(m.user as User);
+
             allUsers.set(miniUser.id, miniUser);
             
             return {
@@ -666,7 +652,8 @@ class session implements Session {
           // v9 things
           guild.guild_scheduled_events = [];
           guild.stage_instances = [];
-        }
+
+          readyGuilds.push(guild);
       }
 
       const tutorial = {
@@ -685,7 +672,7 @@ class session implements Session {
         ],
       };
 
-      let chans: any[] = [];
+      let chans: string[] = [];
 
       if (this.user.bot) {
         const botDms = await prisma.dmChannel.findMany({
@@ -722,6 +709,8 @@ class session implements Session {
 
         chan = globalUtils.personalizeChannelObject(this.socket, chan as Channel);
 
+        console.log(chan);
+        
         if (!chan) continue;
 
         // thanks spacebar
@@ -740,10 +729,10 @@ class session implements Session {
       const relationships = await RelationshipService.getRelationshipsByUserId(this.user.id);
 
       this.application = await OAuthService.getApplicationById(this.user.id);
-      
+  
       this.readyUp({
         v: this.apiVersion,
-        guilds: guilds ?? [],
+        guilds: readyGuilds,
         presences: this.presences ?? [],
         private_channels: filteredDMs,
         relationships: relationships ?? [],
@@ -804,13 +793,11 @@ class session implements Session {
       }
 
       if (this.user.bot) {
-        for (let guild of guilds) {
-          if (guild.unavailable) {
-            await this.dispatch(
+        for (let guild of this.guildCache) {
+          await this.dispatch(
               'GUILD_CREATE',
-              this.guildCache.find((x) => x.id == guild.id),
+              guild,
             );
-          }
         }
 
         await this.updatePresence('online', null, false); //bots never seem to send this after coming online

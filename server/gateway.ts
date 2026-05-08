@@ -89,7 +89,7 @@ export class GatewayServer extends EventEmitter {
     let cookies = req.headers.cookie ?? '';
 
     if (!cookies || !isBrowser) {
-      cookies = `release_date=thirdPartyOrMobile;default_client_build=${String(globalUtils.config.default_client_build ?? 'october_5_2017')};`;
+      cookies = `release_date=october_5_2017;default_client_build=${String(globalUtils.config.default_client_build ?? 'october_5_2017')};`;
     }
 
     if (!cookies && isSameHost && isBrowser && !globalUtils.config.require_release_date_cookie) {
@@ -97,7 +97,7 @@ export class GatewayServer extends EventEmitter {
     }
 
     if (!cookies || !isBrowser) {
-      cookies = `release_date=thirdPartyOrMobile;default_client_build=${String(globalUtils.config.default_client_build ?? 'october_5_2017')};`;
+      cookies = `release_date=october_5_2017;default_client_build=${String(globalUtils.config.default_client_build ?? 'october_5_2017')};`;
     }
 
     const cookieStore = this.parseCookies(cookies);
@@ -107,8 +107,8 @@ export class GatewayServer extends EventEmitter {
     }
 
     if (!cookieStore.release_date) {
-      cookies += `release_date=thirdPartyOrMobile;`;
-      cookieStore.release_date = 'thirdPartyOrMobile';
+      cookies += `release_date=october_5_2017;`;
+      cookieStore.release_date = 'october_5_2017';
     }
 
     if (!globalUtils.addClientCapabilities(cookieStore.release_date, socket)) {
