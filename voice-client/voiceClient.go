@@ -72,7 +72,6 @@ func (vc *VoiceClient) receiveAudio() {
 			continue
 		}
 
-		fmt.Println("hello")
 		if n < 12 {
 			continue 
 		}
@@ -180,6 +179,8 @@ func (client *VoiceClient) handleSignaling(ctx context.Context) {
 			if client.Protocol == "udp" {
 					fmt.Println("Handshake Complete!")
 
+					go client.receiveAudio()
+
 					if client.SendingTestAudio {
 						fmt.Println("Sending test audio..")
 						
@@ -192,9 +193,8 @@ func (client *VoiceClient) handleSignaling(ctx context.Context) {
 								StreamFromOpusPackets(udpConn, serverAddr, packets, ssrc, 111)
 							}
 						}
-					} else {
-						go client.receiveAudio()
 					}
+					
 			}
 		case 5:
 			ssrc = uint32(data["ssrc"].(float64))
