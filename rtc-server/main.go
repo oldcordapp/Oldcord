@@ -111,11 +111,15 @@ func TryBroadcastUDP(p *rtp.Packet, channelId string, senderID string, senderSSR
 			continue
 		}
 
-		if client.masterWebRTCAudio != nil {
-			client.masterWebRTCAudio.WriteRTP(p)
+		if client.Protocol == "webrtc" {
+			if client.masterWebRTCAudio != nil {
+				err := client.masterWebRTCAudio.WriteRTP(p); if err != nil {
+					fmt.Printf("%v", err)
+				}
+			}
 		}
-
-		if client.pc == nil {
+		
+		if client.Protocol == "udp" {
 			client.SendUDP(p, senderSSRC)
 		}
 
@@ -180,6 +184,15 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 
 	AddClient(client)
 
+	clientsMu.RLock()
+	for _, other := range clients {
+		if other.ChannelID == client.ChannelID && other.UserID != client.UserID {
+			client.SendSpeakingEvent(other.UserID, other.SSRC)
+			other.SendSpeakingEvent(client.UserID, client.SSRC)
+		}
+	}
+	clientsMu.RUnlock()
+
 	fmt.Printf("User %s added to active clients.\n", client.UserID)
 
 	client.SafeWrite(map[string]interface{}{
@@ -199,6 +212,35 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, ctx context.Context
 	//CheckAndForwardExistingTracks(client.ServerID, client.UserID)
 }
 
+func subscribeAndNotifyOthers(subKey string, userID string, ssrc uint32, videoSsrc uint32) {
+	clientsMu.Lock()
+
+	for _, other := range clients {
+		if other.Protocol == "webrtc" && other.UserID != userID {
+			other.mu.Lock()
+
+			if other.subscriptions[subKey] {
+				other.mu.Unlock()
+				continue
+			}
+
+			other.subscriptions[subKey] = true
+			other.mu.Unlock()
+
+			other.SafeWrite(map[string]interface{}{
+				"op": OpSSRCUpdate,
+				"d": map[string]interface{}{
+					"user_id":   userID,
+					"audio_ssrc": ssrc, 
+					"video_ssrc": videoSsrc,
+				},
+			})
+		}
+	}
+
+	clientsMu.Unlock()
+}
+
 func (c *RTCClient) setupOnWebRTCTrack() {
 	c.pc.OnTrack(func(remoteTrack *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		var trackType string
@@ -206,23 +248,9 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 			trackType = "audio"
 		} else if remoteTrack.Kind() == webrtc.RTPCodecTypeVideo && remoteTrack.Codec().MimeType == webrtc.MimeTypeH264 {
 			trackType = "video"
-
-			/**
-			// send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
-			// do we need this? takes a while to see the video otherwise
-			go func() {
-				ticker := time.NewTicker(time.Second * 3)
-				for range ticker.C {
-					errSend := p.pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remoteTrack.SSRC())}})
-					if errSend != nil {
-						fmt.Println(errSend)
-					}
-				}
-			}()
-			*/
 		} else {
 			log.Printf("Client %s started publishing unknown track type %s", c.UserID, remoteTrack.Codec().MimeType)
-			return;
+			return
 		}
 
 		ssrc := webrtc.SSRC(remoteTrack.SSRC())
@@ -238,9 +266,11 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 
 		log.Printf("Client %s started publishing %s (SSRC: %d)", c.UserID, trackType, ssrc)
 
+		subKey := c.UserID + "_" + trackType
+
+		go subscribeAndNotifyOthers(subKey, c.UserID, uint32(ssrc), 0)
 		// Forward RTP packets to all subscribed peers
 		go func() {
-			subKey := c.UserID + "_" + trackType
 
 			for {
 				select {
@@ -255,9 +285,8 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 					return
 				}
 
-				if !c.isAudioWebRTCPublished && trackType == "audio" || !c.isVideoWebRTCPublished && trackType == "video" {
-					// if we are not publishing this track, skip forwarding it
-					continue;
+				if c.SelfMute {
+					return
 				}
 
 				// Preserve original SSRC so the client can demultiplex
@@ -271,6 +300,10 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 
 				clientsMu.RLock()
 				for _, other := range clients {
+					if other.SelfDeaf {
+						continue
+					}
+
 					other.mu.Lock()
 					isSubscribed := other.subscriptions[subKey]
 					var masterTrack *MultiplexTrack
@@ -281,12 +314,17 @@ func (c *RTCClient) setupOnWebRTCTrack() {
 					}
 					other.mu.Unlock()
 
-					if isSubscribed && masterTrack != nil {
+					if isSubscribed && masterTrack != nil && other.Protocol == "webrtc" {
 						if writeErr := masterTrack.WriteRTP(rtpPkt); writeErr != nil {
 							// don't spam on closed channels
-							// log.Printf("Track write error to subscriber %s: %v", other.id, writeErr)
+							//log.Printf("Track write error to subscriber %s: %v", other.UserID, writeErr)
 						}
 					}
+
+					if other.Protocol == "udp" {
+						other.SendUDP(rtpPkt, uint32(ssrc))
+					}
+
 				}
 				clientsMu.RUnlock()
 			}
@@ -416,6 +454,34 @@ func handleSignal(msgD json.RawMessage, currentUserID string) {
     fmt.Printf("Forwarded webrtc-p2p signal from %s -> %s\n", currentUserID, recipient.UserID)
 }
 
+func handleSSRCUpdate(msgD json.RawMessage, currentUserID string) {
+	var payload SSRCUpdate 
+
+	if err := json.Unmarshal(msgD, &payload); err != nil {
+		fmt.Printf("SSRC Update error: %v\n", err)
+		return
+	}
+
+	clientsMu.RLock()
+	client := clients[currentUserID]
+	clientsMu.RUnlock()
+
+	if client != nil && client.Protocol == "webrtc" {
+		for _, other := range clients {
+			if other.ChannelID == client.ChannelID && other.UserID != client.UserID {
+				other.SafeWrite(map[string]interface{}{
+					"op": OpSSRCUpdate,
+					"d": map[string]interface{}{
+						"user_id":    client.UserID,
+						"audio_ssrc": client.masterWebRTCAudio.ssrc,
+						"video_ssrc": 0,
+					},
+				})
+			}
+		}
+	}
+}
+
 func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID string) {
 	var payload Speaking
 
@@ -449,11 +515,12 @@ func handleSpeaking(msgD json.RawMessage, c *websocket.Conn, currentUserID strin
 	lastRTPMu.Unlock()
 
 	for _, other := range clients {
-		if other.ChannelID == client.ChannelID && other.SSRC != client.SSRC {
+		if other.ChannelID == client.ChannelID && other.SSRC != client.SSRC && !other.SelfDeaf {
 			other.SendSpeakingEvent(client.UserID, client.SSRC)
 		}
 	}
 }
+
 
 func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 	c, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
@@ -499,6 +566,10 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 
         err := wsjson.Read(ctx, c, &msg)
         if err != nil {
+			if websocket.CloseStatus(err) != -1 {
+				return
+			}
+
             fmt.Println("Read error:", err)
             return
         }
@@ -517,6 +588,8 @@ func handleSignaling(writer http.ResponseWriter, request *http.Request) {
 				handleSignal(msg.D, currentUserID)
 			case int(OpSpeaking):
 				handleSpeaking(msg.D, c, currentUserID)
+			case int(OpSSRCUpdate):
+				handleSSRCUpdate(msg.D, currentUserID)
 		}
 	}
 }
@@ -662,7 +735,8 @@ func StartUDPHandler(port int) {
 }
 
 func main() {
-	err := godotenv.Load()
+	var err error
+	err = godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
@@ -672,12 +746,12 @@ func main() {
 		return
 	}
 
-	Port, err := strconv.Atoi(os.Args[1])
+	Port, err = strconv.Atoi(os.Args[1])
 	if err != nil {
 		log.Fatal("Invalid RTC port")
 	}
 
-	UDPPort, err := strconv.Atoi(os.Args[2])
+	UDPPort, err = strconv.Atoi(os.Args[2])
 	if err != nil {
 		log.Fatal("Invalid UDP port")
 	}

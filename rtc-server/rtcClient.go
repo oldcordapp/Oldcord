@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/google/uuid"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
@@ -29,8 +29,6 @@ type RTCClient struct {
 	SelfDeaf               bool
 	masterWebRTCAudio      *MultiplexTrack
 	masterWebRTCVideo      *MultiplexTrack
-	isAudioWebRTCPublished bool
-	isVideoWebRTCPublished bool
 	Socket                 *websocket.Conn
 	udpSocket              *net.UDPConn
 	mu                     sync.Mutex
@@ -148,11 +146,11 @@ func (c *RTCClient) HandleUDP(payload []byte) {
 
 func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {
 	err := c.SafeWrite(map[string]interface{}{
-		"op": 5,
+		"op": OpSpeaking,
 		"d": map[string]interface{}{
 			"user_id": UserID,
 			"ssrc":    SSRC,
-			"delay":   0,
+			"speaking": true,
 		},
 	})
 	if err != nil {
@@ -162,9 +160,7 @@ func (c *RTCClient) SendSpeakingEvent(UserID string, SSRC uint32) {
 }
 
 func (c *RTCClient) SendUDP(p *rtp.Packet, SSRC uint32) {
-	fmt.Println("Sending udp!!!")
 	if c.udpSocket != nil {
-		fmt.Println("socket not null sending")
 		raw, err := p.Marshal()
 		if err != nil {
 			fmt.Printf("Failed to marshal RTP: %v\n", err)
@@ -179,9 +175,56 @@ func (c *RTCClient) SendUDP(p *rtp.Packet, SSRC uint32) {
 	}
 }
 
-func generateCNAME() string {
-    newUUID := uuid.New().String()
-    return fmt.Sprintf("{%s}", newUUID)
+func (c *RTCClient) SubscribeToExistingTracks() {
+    clientsMu.RLock()
+
+    defer clientsMu.RUnlock()
+
+    for _, other := range clients {
+        if other.UserID == c.UserID {
+            continue
+        }
+
+        if other.ChannelID != c.ChannelID {
+            continue
+        }
+
+		var videoSSRC uint32 = 0
+		var audioSSRC uint32 = 0
+
+        other.mu.Lock()
+
+		if other.masterWebRTCAudio != nil {
+			subKeyAudio := other.UserID + "_audio"
+
+			audioSSRC = uint32(other.masterWebRTCAudio.ssrc)
+			c.mu.Lock()
+            c.subscriptions[subKeyAudio] = true
+            c.mu.Unlock()
+		}
+
+		if other.masterWebRTCVideo != nil {
+			subKeyVideo := other.UserID + "_video"
+
+			videoSSRC = uint32(other.masterWebRTCAudio.ssrc)
+			c.mu.Lock()
+            c.subscriptions[subKeyVideo] = true
+            c.mu.Unlock()
+
+			log.Printf("Subscribed New Client %s to existing %s track from %s", c.UserID, "video", other.UserID)
+		}
+
+        c.SafeWrite(map[string]interface{}{
+            "op": OpSSRCUpdate,
+            "d": map[string]interface{}{
+                "user_id":    other.UserID,
+                "audio_ssrc": audioSSRC, 
+				"video_ssrc": videoSSRC,
+            },
+        })
+
+        other.mu.Unlock()
+    }
 }
 
 func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
@@ -198,25 +241,40 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 		return
 	}
 
-	clientCNAME := generateCNAME()
+	opusType := 0
+	videoType := 0
+	videoBitrate := 2500
+	opusBitrate := 64
 
-	// create the single downstream tracks for Audio and Video multiplexing
-	masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", clientCNAME, webrtc.SSRC(c.SSRC))
-	//masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", "video")
-
-	// add them to the peer connection immediately so they are included in the initial Offer/Answer
-	if _, err := pc.AddTrack(masterAudio); err != nil {
-		fmt.Printf("AddTrack audio: %v\n", err)
-		return
+	for _, codec := range codecs {
+		if codec.Type == "audio" && codec.Name == "opus" {
+			opusType = int(codec.PayloadType)
+		} else if codec.Type == "video" && codec.Name == "VP8" {
+			videoType = int(codec.PayloadType)
+		}
 	}
 
-	//if _, err := pc.AddTrack(masterVideo); err != nil {
-		//fmt.Printf("AddTrack video: %v\n", err)
-		//return
-	//}
+	if opusType != 0 {
+		masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", c.UserID, webrtc.SSRC(c.SSRC))
 
-	c.masterWebRTCAudio = masterAudio
-	//c.masterWebRTCVideo = masterVideo
+		if _, err := pc.AddTrack(masterAudio); err != nil {
+			fmt.Printf("AddTrack audio: %v\n", err)
+			return
+		}
+		c.masterWebRTCAudio = masterAudio
+	}
+
+	if videoType != 0 {
+		masterVideo := NewMultiplexTrack(webrtc.RTPCodecTypeVideo, "video", c.UserID, webrtc.SSRC(c.SSRC + 1)) // fix ASAP.
+
+		if _, err := pc.AddTrack(masterVideo); err != nil {
+			fmt.Printf("AddTrack video: %v\n", err)
+			return
+		}
+
+		c.masterWebRTCVideo = masterVideo
+	}
+
 	c.subscriptions = make(map[string]bool)
 	c.pc = pc
 
@@ -235,7 +293,21 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 	log.Printf("Client %s joined", c.ServerID)
 
-	fullOffer := sdpFragment
+	legacyAnswer := strings.Contains(sdpFragment, "v=")
+	
+	var remoteSSRCs []RemoteSSRC
+
+	fullOffer := generateSessionDescription(
+		true,
+		"offer",
+		sdpFragment,
+		"sendrecv",
+		opusType,
+		opusBitrate,
+		videoType, 
+		videoBitrate,
+		remoteSSRCs,
+	)
 
 	fmt.Printf("%s\n", fullOffer)
 
@@ -264,10 +336,20 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 
 	pionSDP := c.pc.LocalDescription().SDP
 
+	fmt.Printf("Answer: %s\n", pionSDP)
+
+	answerResp := makeAnswer(pionSDP, IP, Port, legacyAnswer)
+
+	if answerResp == "" {
+		c.Close()
+		c.Socket.Close(websocket.StatusAbnormalClosure, "Failed to generate answer. Piss off.")
+		return
+	}
+
 	c.SafeWrite(map[string]interface{}{
 		"op": OpAnswer,
 		"d": map[string]interface{}{
-			"sdp":         pionSDP,
+			"sdp":         answerResp,
 			"audio_codec": "opus",
 			"video_codec": "VP8",
 		},

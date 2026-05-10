@@ -14,6 +14,7 @@ const (
 	OpHeartbeatAck // 6
 	OpHello = 8
 	OpSignal = 10 // webrtc-p2p
+	OpSSRCUpdate = 12
 	OpDisconnect = 13
 )
 
@@ -23,6 +24,12 @@ type Identify struct {
 	SessionID string `json:"session_id"`
 	Token     string `json:"token"`
 	Video     bool   `json:"video"`
+}
+
+type SSRCUpdate struct {
+	UserID string `json:"user_id,omitempty"`
+	AudioSSRC uint32 `json:"audio_ssrc"`
+	VideoSSRC uint32 `json:"video_ssrc"`
 }
 
 type Speaking struct {
