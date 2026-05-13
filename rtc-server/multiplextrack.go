@@ -12,6 +12,7 @@ import (
 
 type trackBinding struct {
 	payloadType uint8
+	ssrc        uint32
 	writeStream webrtc.TrackLocalWriter
 }
 
@@ -66,6 +67,7 @@ func (t *MultiplexTrack) Bind(ctx webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 
 	t.bindings[ctx.SSRC()] = &trackBinding{
 		payloadType: uint8(negotiatedCodec.PayloadType),
+		ssrc:        uint32(ctx.SSRC()),
 		writeStream: ctx.WriteStream(),
 	}
 	return negotiatedCodec, nil
@@ -91,10 +93,10 @@ func (t *MultiplexTrack) WriteRTP(p *rtp.Packet) error {
 	// keeping the sender SSRC simplifies our signaling work. However, payload type 
 	// must be kept from the receiver client offer since each browser uses a different one
 	for _, b := range t.bindings {
-		pkt := *p
-		pkt.Header.PayloadType = b.payloadType
+		p.Header.PayloadType = b.payloadType
+        p.Header.SSRC = b.ssrc
 
-		if _, err := b.writeStream.WriteRTP(&pkt.Header, pkt.Payload); err != nil {
+		if _, err := b.writeStream.WriteRTP(&p.Header, p.Payload); err != nil {
 			return err
 		}
 	}

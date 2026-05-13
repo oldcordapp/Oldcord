@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -283,12 +284,37 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 	opusBitrate := 64
 
 	for _, codec := range codecs {
-		if codec.Type == "audio" && codec.Name == "opus" {
-			opusType = int(codec.PayloadType)
-		} else if codec.Type == "video" && codec.Name == "VP8" {
-			videoType = int(codec.PayloadType)
-		}
-	}
+        if codec.Type == "audio" && (strings.ToLower(codec.Name) == "opus") {
+            opusType = int(codec.PayloadType)
+        } else if codec.Type == "video" && (strings.ToLower(codec.Name) == "vp8") {
+            videoType = int(codec.PayloadType)
+        }
+    }
+
+	if opusType == 0 {
+        lines := strings.Split(sdpFragment, "\n")
+        for _, line := range lines {
+            if strings.Contains(line, "opus/48000") {
+                parts := strings.Split(line, " ")
+                if len(parts) > 0 {
+                    ptStr := strings.TrimPrefix(parts[0], "a=rtpmap:")
+                    if pt, err := strconv.Atoi(ptStr); err == nil {
+                        opusType = pt
+                        log.Printf("Legacy Client: Extracted Opus Payload Type %d from SDP", pt)
+                    }
+                }
+            }
+            if strings.Contains(line, "VP8/90000") {
+                 parts := strings.Split(line, " ")
+                 if len(parts) > 0 {
+                    ptStr := strings.TrimPrefix(parts[0], "a=rtpmap:")
+                    if pt, err := strconv.Atoi(ptStr); err == nil {
+                        videoType = pt
+                    }
+                 }
+            }
+        }
+    }
 
 	if opusType != 0 && c.AudioSSRC != 0 {
 		masterAudio := NewMultiplexTrack(webrtc.RTPCodecTypeAudio, "audio", c.UserID, webrtc.SSRC(c.AudioSSRC))
@@ -297,6 +323,7 @@ func (c *RTCClient) SetupPC(sdpFragment string, codecs []Codec) {
 			fmt.Printf("AddTrack audio: %v\n", err)
 			return
 		}
+
 		c.masterWebRTCAudio = masterAudio
 	}
 
