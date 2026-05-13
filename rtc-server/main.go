@@ -199,12 +199,20 @@ func handleIdentify(msgD json.RawMessage, c *websocket.Conn, currentUserID *stri
 		return
 	}
 
-	fmt.Printf("User %s verified for server %s -> channel %s\n", d.UserID, d.ServerID, sessionData.ChannelID)
+	channelID := ""
+
+	if ok {
+		channelID = sessionData.ChannelID
+	} else if d.ChannelID != "" {
+		channelID = d.ChannelID
+	}
+
+	fmt.Printf("User %s verified for server %s -> channel %s\n", d.UserID, d.ServerID, channelID)
 
 	audio_ssrc := generateSSRC()
 	video_ssrc := generateSSRC()
 
-	client := NewRTCClient(d.UserID, d.ServerID, sessionData.ChannelID, d.SessionID, d.Token, audio_ssrc, video_ssrc, d.Video, c)
+	client := NewRTCClient(d.UserID, d.ServerID, channelID, d.SessionID, d.Token, audio_ssrc, video_ssrc, d.Video, c)
 
 	if currentUserID != nil {
 		*currentUserID = d.UserID

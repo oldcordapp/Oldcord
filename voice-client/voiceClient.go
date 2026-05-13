@@ -21,6 +21,7 @@ type VoiceClient struct {
 	UdpSocket *net.UDPConn
 	UdpAddr *net.UDPAddr
 	ServerID string
+	ChannelID string
 	UserID string
 	SSRC uint32
 	recorder         *oggwriter.OggWriter
@@ -205,7 +206,7 @@ func (client *VoiceClient) handleSignaling(ctx context.Context) {
 	}
 }
 
-func NewVoiceClient(rtcServerURL string, protocol string, serverID string, userID string, sessionID string, token string, sender bool) *VoiceClient {
+func NewVoiceClient(rtcServerURL string, protocol string, serverID string, channelID string, userID string, sessionID string, token string, sender bool) *VoiceClient {
 	ctx := context.Background()
 	c, _, err := websocket.Dial(ctx, rtcServerURL, nil)
 
@@ -217,6 +218,7 @@ func NewVoiceClient(rtcServerURL string, protocol string, serverID string, userI
 		"op": 0,
 		"d": map[string]interface{}{
 			"server_id":  serverID,
+			"channel_id": channelID, //This isnt compliant but who cares, it makes things easier for us.
 			"user_id":    userID,
 			"session_id": sessionID,
 			"token":      token,
@@ -230,6 +232,7 @@ func NewVoiceClient(rtcServerURL string, protocol string, serverID string, userI
 		UdpSocket: nil,
 		UdpAddr: nil,
 		ServerID: serverID,
+		ChannelID: channelID,
 		UserID: userID,
 		SSRC: 0,
 	}

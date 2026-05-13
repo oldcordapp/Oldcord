@@ -20,6 +20,7 @@ const (
 
 type Identify struct {
 	ServerID  string `json:"server_id"`
+	ChannelID string `json:"channel_id,omitempty"` //For voice client use only.
 	UserID    string `json:"user_id"`
 	SessionID string `json:"session_id"`
 	Token     string `json:"token"`
