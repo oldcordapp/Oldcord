@@ -331,7 +331,7 @@ async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePack
 
     let output = await fetch(`http://${url}/internal/sync`, {
       headers: {
-        'Authorization' : 'Bearer CHANGEME'
+        'Authorization' : `Bearer ${process.env.RTC_SECRET_KEY}`
       },
       body: JSON.stringify({
         user_id: socket.session.user.id,

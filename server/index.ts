@@ -291,6 +291,7 @@ app.get('/attachments/:guildid/:channelid/:filename', async (req: Request, res: 
   const fileName = path.basename(req.params.filename as string);
   const safeBabyModeExtensionsImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
   const safeBabyModeExtensionsVideo = ['.mp4', '.mov', '.webm'];
+  const plainTextExtensions = ['.html', '.htm', '.txt', '.text', '.json', '.js', '.css', '.xml'];
   const baseFilePath = path.join(
     process.cwd(),
     'www_dynamic',
@@ -318,7 +319,10 @@ app.get('/attachments/:guildid/:channelid/:filename', async (req: Request, res: 
     }
 
     if (!width || !height) {
-      if (
+      if (plainTextExtensions.includes(ext)) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', 'inline');
+      } else if (
         !safeBabyModeExtensionsImage.includes(ext) &&
         !safeBabyModeExtensionsVideo.includes(ext)
       ) {

@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { z } from 'zod';
 
 import encode from './base64url.js';
 import dispatcher from './dispatcher.js';
@@ -21,6 +22,14 @@ import { MessageService } from '../api/services/messageService.ts';
 import type { Presence } from '../types/presence.ts';
 import type { WebSocket } from "ws";
 
+const SuperPropsSchema = z.object({
+  os: z.string().min(1),
+  browser: z.string().min(1),
+  device: z.string().catch(''),
+  referrer: z.string().catch(''),
+  referring_domain: z.string().catch(''),
+  browser_user_agent: z.string().min(10)
+});
 
 const configPath = './config.json';
 
@@ -342,7 +351,7 @@ const globalUtils = {
     return guildMembers.map((guildMember) => {
       return {
         ...globalUtils.getUserPresence(member),
-        roles: guildMember.roles as unknown as string[] 
+        roles: guildMember.roles as unknown as string[]
       }
     });
   },
@@ -390,7 +399,7 @@ const globalUtils = {
   },
   addClientCapabilities: (client_build: string, obj: any): boolean => {
     if (!client_build || client_build === 'undefined') {
-       client_build = 'october_5_2017';
+      client_build = 'october_5_2017';
     }
 
     const parts = client_build ? client_build.split('_') : null;
@@ -417,7 +426,7 @@ const globalUtils = {
   },
   flagToReason: (flag: string): string => {
     const kvp = {
-      'NO_REGISTRATION' : 'Account registration is currently disabled on this instance.',
+      'NO_REGISTRATION': 'Account registration is currently disabled on this instance.',
       'NO_GUILD_CREATION': 'Creating guilds is currenly not allowed on this instance.',
       'NO_INVITE_USE': 'You are not allowed to accept this invite.',
       'NO_INVITE_CREATION': 'Creating invites is not allowed on this instance.'
@@ -701,10 +710,8 @@ const globalUtils = {
       return true;
     }
   },
-  validSuperPropertiesObject: (superprops: any, _url: any, baseUrl: any, userAgent: any): boolean => {
+  validSuperPropertiesObject: (superprops: string, _url: string, baseUrl: string, userAgent: string): boolean => {
     try {
-      //Maybe do something with url going forward?
-
       if (baseUrl === '/api/auth') {
         return true;
       } //This one usually gives an X Super props which returns nothing useful or usually hinders everything - so may aswell skip it {"os":"Linux","browser":"Firefox","device":"","referrer":"","referring_domain":""}
@@ -722,37 +729,31 @@ const globalUtils = {
         return false;
       }
 
-      const decodedProperties = Buffer.from(superprops, 'base64').toString('utf-8');
+      const decodedString = Buffer.from(superprops, 'base64').toString('utf-8');
 
-      if (!decodedProperties || decodedProperties.length < 5) {
+      if (!decodedString || decodedString.length < 5) {
         return false;
       }
 
-      const obj = JSON.parse(decodedProperties);
+      const parsedJson = JSON.parse(decodedString);
+      const result = SuperPropsSchema.safeParse(parsedJson);
 
-      let points = 0;
-      const to_check = [
-        'os',
-        'browser',
-        'device',
-        'referrer',
-        'referring_domain',
-        'browser_user_agent',
-      ];
+      if (!result.success) {
+        return false;
+      }
 
-      for (var check of to_check) {
-        const val = obj[check];
+      const validatedData = result.data;
 
-        if (obj && val) {
-          points++;
+      if (validatedData.browser_user_agent !== userAgent) {
+        return false; 
+      }
 
-          if (check === 'browser_user_agent' && val !== userAgent) {
-            points++;
-          }
-        }
-      } //to-do make this much, much better please.
+      if (!userAgent.toLowerCase().includes(validatedData.os.toLowerCase())) {
+        // noia note: this should prevent fake user agents using linux, etc as a substring when they really are supposed to be windows devices, or whatever. 
+        return !config.instance.flags.includes("HARDENED_SUPERPROPS_CHECKS"); //to-do: tweak this
+      }
 
-      return points >= 2;
+      return true;
     } catch (error) {
       logText(error, 'error');
 
@@ -862,7 +863,7 @@ const globalUtils = {
           }
 
           //Read snowflake
-          let snowflake: any  = '';
+          let snowflake: any = '';
           while (true) {
             if (i >= text.length) {
               //Snowflake not complete
@@ -923,12 +924,15 @@ const globalUtils = {
     return result;
   },
   pingPrivateChannel: async (channel: any) => {
-    for (var recipient of channel.recipients) {
-      await globalUtils.pingPrivateChannelUser(channel, recipient.id);
-    }
+    if (!channel || !channel.recipients) return;
+
+    await Promise.all(
+      channel.recipients.map((recipient: any) =>
+        globalUtils.pingPrivateChannelUser(channel.id, recipient.id)
+      )
+    );
   },
-  //to-do make private_channel take the id instead
-  pingPrivateChannelUser: async (private_channel: any, recipient_id: any) => {
+  pingPrivateChannelUser: async (private_channel_id: string, recipient_id: string) => {
     const user = await prisma.user.findUnique({
       where: { id: recipient_id },
       select: { private_channels: true }
@@ -938,12 +942,12 @@ const globalUtils = {
       return;
     }
 
-    let userPrivChannels: Channel[] = user.private_channels as unknown as Channel[];
-    let sendCreate = !userPrivChannels.includes(private_channel.id);
+    let userPrivChannels: string[] = typeof user.private_channels === 'string' ? JSON.parse(user.private_channels) : (user.private_channels as string[] || []);
+    const sendCreate = !userPrivChannels.includes(private_channel_id);
 
     userPrivChannels = [
-      private_channel.id, 
-      ...userPrivChannels.filter(id => id !== private_channel.id)
+      private_channel_id,
+      ...userPrivChannels.filter(id => id !== private_channel_id)
     ];
 
     await prisma.user.update({
@@ -952,9 +956,16 @@ const globalUtils = {
     });
 
     if (sendCreate) {
-      await dispatcher.dispatchEventTo(recipient_id, 'CHANNEL_CREATE', function (socket: WebSocket) {
-        return globalUtils.personalizeChannelObject(socket, private_channel);
+      const private_channel = await prisma.channel.findUnique({
+        where: { id: private_channel_id },
+        include: { recipients: true }
       });
+
+      if (private_channel) {
+        await dispatcher.dispatchEventTo(recipient_id, 'CHANNEL_CREATE', function (socket: WebSocket) {
+          return globalUtils.personalizeChannelObject(socket, private_channel as Channel);
+        });
+      }
     }
   },
   channelTypeToString: (type: number): string => {
@@ -1028,12 +1039,12 @@ const globalUtils = {
     }
 
     const clone: any = {};
-    
+
     Object.assign(clone, channel);
 
     if (channel.recipients) {
       if (req.user_id || user) {
-          clone.recipients = channel.recipients.filter((r) => r.id != (req.user_id || user?.id));
+        clone.recipients = channel.recipients.filter((r) => r.id != (req.user_id || user?.id));
       }
     }
 
@@ -1047,9 +1058,9 @@ const globalUtils = {
     const useInts = req.channel_types_are_ints ?? true;
 
     if (!useInts) {
-        clone.type = globalUtils.channelTypeToString(parseInt(channel.type as string));
+      clone.type = globalUtils.channelTypeToString(parseInt(channel.type as string));
     } else {
-        clone.type = parseInt(channel.type as string);
+      clone.type = parseInt(channel.type as string);
     }
 
     return clone;

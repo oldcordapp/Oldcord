@@ -283,7 +283,7 @@ router.get(
       return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
     }
   },
-); //to-do figure out why this never gets to /ring
+);
 
 router.post(
   '/:channelid/call/ring',
@@ -294,13 +294,31 @@ router.post(
 
       if (channel.type !== ChannelType.DM && channel.type !== ChannelType.GROUPDM) {
         return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
-      } //This used to be a recipients is undefined check
+      }
 
       const call_msg = await MessageService.createSystemMessage(null, channel.id, MessageType.CALL, [
         req.account,
       ]);
 
       await dispatcher.dispatchEventInPrivateChannel(channel.id, 'MESSAGE_CREATE', call_msg);
+
+      const otherRecipients = channel.recipients?.filter((user) => user.id !== req.account.id);
+      if (!otherRecipients || otherRecipients.length == 0) {
+         return res.status(204).send();
+      }
+
+      const ringPayload = {
+        channel_id: channel.id,
+        message_id: call_msg?.message_id,
+        region: "sydney",
+        ringing: otherRecipients.map((r) => r.id),
+      };
+
+      await Promise.all(
+        otherRecipients.map((recipient) =>
+          dispatcher.dispatchEventTo(recipient.id, 'CALL_CREATE', ringPayload)
+        )
+      );
 
       return res.status(204).send();
     } catch (error) {
@@ -758,7 +776,7 @@ router.put(
       });
 
       //Notify new recipient
-      await globalUtils.pingPrivateChannelUser(channel, recipient.id);
+      await globalUtils.pingPrivateChannelUser(channel.id, recipient.id);
 
       const add_msg = await MessageService.createSystemMessage(null, channel.id, MessageType.ADD_TO_GROUP, [
         sender,

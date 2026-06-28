@@ -173,7 +173,7 @@ export class GatewayServer extends EventEmitter {
     reset();
   }
 
-  private async handleClientMessage(socket: any, data: any) {
+  private async handleClientMessage(socket: WebSocket, data: any) {
     try {
       socket.hb?.reset();
       

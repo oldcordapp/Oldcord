@@ -22,7 +22,7 @@ export interface AccountSettings {
     allow_email_friend_request?: boolean;
     friend_source_flags?: FriendSourceFlags;
     developer_mode?: boolean;
-    guild_positions?: any[]; //to-do figure out what
+    guild_positions?: string[]; //should this be a number? snowflakes are strings though.. or well really big numbers, so, i guess it rlly doesn't matter now does it
     detect_platform_accounts?: boolean;
     status?: string;
 };

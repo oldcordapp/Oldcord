@@ -374,8 +374,8 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
     }
 
     if (!account.bot) {
-      const xSuperProperties = req.headers['X-Super-Properties'];
-      const userAgent = req.headers['User-Agent'];
+      const xSuperProperties = req.headers['X-Super-Properties'] as string;
+      const userAgent = req.headers['User-Agent'] as string;
 
       try {
         const validSuperProps = globalUtils.validSuperPropertiesObject(

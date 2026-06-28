@@ -18,6 +18,7 @@ import { AuditLogActionType, type AuditLogChange } from '../types/auditlog.ts';
 import { prisma } from '../prisma.ts';
 import { PUBLIC_USER_SELECT } from './services/accountService.ts';
 import type { Role } from '../types/role.ts';
+import permissions from '../helpers/permissions.ts';
 
 interface ErrorReponse {
   code: number;
@@ -185,9 +186,16 @@ router.patch(
     try {
       const member = req.member;
       const guild = req.guild;
+      const actorId = req.account.id;
       const auditChanges: AuditLogChange[] = [];
+      const voiceStates = ctx.guild_voice_states.get(guild.id) || [];
+      const existingIndex = voiceStates.findIndex(v => v.user_id === member.user.id);
+      const voiceState = voiceStates[existingIndex] ?? null;
 
       if (req.body.nick !== undefined && req.body.nick !== member.nick) {
+        const hasNickPerm = await permissions.hasGuildPermissionTo(guild.id, actorId, 'MANAGE_NICKNAMES', null);
+        if (!hasNickPerm) return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+
         auditChanges.push({
           key: 'nick',
           old_value: member.nick || null,
@@ -196,6 +204,9 @@ router.patch(
       }
 
       if (req.body.mute !== undefined && req.body.mute !== member.mute) {
+        const hasMutePerm = await permissions.hasGuildPermissionTo(guild.id, actorId, 'MUTE_MEMBERS', null);
+        if (!hasMutePerm) return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+
         auditChanges.push({
           key: 'mute',
           old_value: member.mute,
@@ -204,11 +215,49 @@ router.patch(
       }
 
       if (req.body.deaf !== undefined && req.body.deaf !== member.deaf) {
+        const hasDeafPerm = await permissions.hasGuildPermissionTo(guild.id, actorId, 'DEAFEN_MEMBERS', null);
+        if (!hasDeafPerm) return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+
         auditChanges.push({
           key: 'deaf',
           old_value: member.deaf,
           new_value: req.body.deaf
         });
+      }
+
+      if (req.body.channel_id !== undefined) {
+        if (!voiceState) {
+          return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR); //uhh get a voice state loser
+        }
+
+        if (req.body.channel_id !== voiceState.channel_id) {
+          const hasMovePerm = await permissions.hasGuildPermissionTo(guild.id, actorId, 'MOVE_MEMBERS', null);
+          if (!hasMovePerm) return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+
+          auditChanges.push({
+            key: 'channel_id',
+            old_value: voiceState.channel_id || null,
+            new_value: req.body.channel_id || null
+          });
+
+          voiceState.channel_id = req.body.channel_id;
+
+          const sessions = ctx.userSessions.get(member.user.id);
+          const session = sessions && sessions.length > 0 ? sessions && sessions[0] : null;
+
+          await dispatcher.dispatchEventTo(member.user.id, 'VOICE_STATE_UPDATE', {
+            channel_id: null,
+            guild_id: guild.id,
+            user_id: member.user.id,
+            session_id: session ? session.id : null,
+            deaf: false,
+            mute: false,
+            self_deaf: voiceState.self_deaf,
+            self_mute: voiceState.self_mute,
+            self_video: false,
+            suppress: false,
+          });
+        }
       }
 
       if (auditChanges.length > 0) {
@@ -223,71 +272,78 @@ router.patch(
         );
       }
 
-      const oldRoleIds = member.roles;
-      const newRoleIds = req.body.roles;
-      const addedRoles = newRoleIds.filter((id: string) => !oldRoleIds.includes(id));
-      const removedRoles = oldRoleIds.filter((id: string) => !newRoleIds.includes(id));
-      const affectedRoles = [...addedRoles, ...removedRoles];
-      const roleAuditLogChanges: any[] = [];
-      const ourMember = guild.members?.find(x => x.user.id === req.account.id);
+      if (req.body.roles !== undefined) {
+         const hasRolesPerm = await permissions.hasGuildPermissionTo(guild.id, actorId, 'MANAGE_ROLES', null);
+          if (!hasRolesPerm) {
+            return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+          }
 
-      if (!ourMember) {
-        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR); //??
-      }
+        const oldRoleIds = member.roles;
+        const newRoleIds = req.body.roles;
+        const addedRoles = newRoleIds.filter((id: string) => !oldRoleIds.includes(id));
+        const removedRoles = oldRoleIds.filter((id: string) => !newRoleIds.includes(id));
+        const affectedRoles = [...addedRoles, ...removedRoles];
+        const roleAuditLogChanges: any[] = [];
+        const ourMember = guild.members?.find(x => x.user.id === actorId);
 
-      const actorHighest = getMemberHighestRole(ourMember, guild);
-      const targetHighest = getMemberHighestRole(member, guild);
+        if (!ourMember) {
+          return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR); //???
+        }
 
-      if (req.account.id !== guild.owner_id && actorHighest <= targetHighest) {
-        return res.status(403).json(errors.response_403.MISSING_PERMISSIONS); //Find a more appropriate error here
-      }
+        const actorHighest = getMemberHighestRole(ourMember, guild);
+        const targetHighest = getMemberHighestRole(member, guild);
 
-      for (const roleId of affectedRoles) {
-        const role = guild.roles?.find(r => r.id === roleId);
-        
-        if (role && role.position >= actorHighest && req.account.id !== guild.owner_id) {
+        if (actorId !== guild.owner_id && actorHighest <= targetHighest) {
           return res.status(403).json(errors.response_403.MISSING_PERMISSIONS); //Find a more appropriate error here
         }
-      }
 
-      if (addedRoles.length > 0) {
+        for (const roleId of affectedRoles) {
+          const role = guild.roles?.find(r => r.id === roleId);
+
+          if (role && role.position >= actorHighest && actorId !== guild.owner_id) {
+            return res.status(403).json(errors.response_403.MISSING_PERMISSIONS);
+          }
+        }
+
+        if (addedRoles.length > 0) {
           roleAuditLogChanges.push({
-              key: '$add',
-              new_value: addedRoles.map((id: string) => {
-                  const role = guild.roles!.find(r => r.id === id);
-                  return { id: id, name: role?.name || "Unknown Role" };
-              })
+            key: '$add',
+            new_value: addedRoles.map((id: string) => ({
+              id,
+              name: guild.roles!.find(r => r.id === id)?.name || "Unknown Role"
+            }))
           });
-      }
+        }
 
-      if (removedRoles.length > 0) {
+        if (removedRoles.length > 0) {
           roleAuditLogChanges.push({
-              key: '$remove',
-              new_value: removedRoles.map((id: string) => {
-                  const role = guild.roles!.find(r => r.id === id);
-                  return { id: id, name: role?.name || "Unknown Role" };
-              })
+            key: '$remove',
+            new_value: removedRoles.map((id: string) => ({
+              id,
+              name: guild.roles!.find(r => r.id === id)?.name || "Unknown Role"
+            }))
           });
-      }
+        }
 
-      if (roleAuditLogChanges.length > 0) {
-        await AuditLogService.insertEntry(
+        if (roleAuditLogChanges.length > 0) {
+          await AuditLogService.insertEntry(
             guild.id,
-            req.account.id,
+            actorId,
             member.user.id,
             AuditLogActionType.MEMBER_ROLE_UPDATE,
             req.headers['x-audit-log-reason'] as string ?? null,
-            auditChanges,
+            roleAuditLogChanges,
             {}
-        );
+          );
+        }
       }
 
       const newMember = await updateMember(guild.id, {
         user: globalUtils.miniUserObject(member.user as User),
         user_id: member.user.id,
-        roles: member.roles,
-        nick: member.nick ?? null
-      }, req.body.roles, req.body.nick);
+        roles: req.body.roles ?? member.roles,
+        nick: req.body.nick !== undefined ? req.body.nick : member.nick
+      }, req.body.roles ?? member.roles, req.body.nick !== undefined ? req.body.nick : member.nick);
 
       if ("code" in newMember) {
         return res.status(newMember.code).json(newMember);
@@ -298,6 +354,7 @@ router.patch(
         nick: newMember.nick,
         guild_id: req.guild.id,
         roles: newMember.roles,
+        channel_id: voiceState.channel_id,
         joined_at: member.joined_at,
         deaf: member.deaf,
         mute: member.mute,
