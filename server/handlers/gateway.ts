@@ -11,7 +11,6 @@ import type { User } from '../types/user.ts';
 import type { Member } from '../types/member.ts';
 import { logText } from '../helpers/logger.ts';
 import ctx from '../context.ts';
-import type { Session } from '../types/session.ts';
 import type { Activity, Game, StatusType } from '../types/presence.ts';
 
 async function handleIdentify(socket: WebSocket, packet: GatewayIdentifyPacket) {
@@ -165,7 +164,6 @@ function checkVerification(guild: any, member: any, user: any): { canAction: boo
 
     return { canAction: true };
 }
-
 
 async function handleVoiceState(socket: WebSocket, packet: GatewayVoiceStatePacket) {
   const { guild_id, channel_id, self_mute, self_deaf } = packet.d;
@@ -575,6 +573,21 @@ async function handleResume(socket: WebSocket, packet: GatewayResumePacket) {
 
   socket.resumed = true;
 
+  const session2 = ctx.sessions.get(session_id);
+
+  if (!session2) {
+    socket.send(JSON.stringify({
+      op: GatewayOpcode.INVALID_SESSION,
+      d: false
+    }));
+    
+    setTimeout(() => {
+      try { socket.close(4000, 'Session invalidated'); } catch {}
+    }, 500);
+
+    return;
+  }
+
   const user = await prisma.user.findUnique({
     where: {
       token: token
@@ -597,63 +610,35 @@ async function handleResume(socket: WebSocket, packet: GatewayResumePacket) {
     return socket.close(4004, 'Authentication failed');
   }
 
-  const session2 = ctx.sessions.get(session_id);
+  socket.user_id = user.id;
 
-  if (!session2) {
-    const sesh = new session(
-      globalUtils.generateString(16),
-      socket,
-      user,
-      token,
-      false,
-      {
-        game: null,
-        status: ((user?.settings as AccountSettings).status as StatusType) ?? 'online',
-        activities: [],
-        user: globalUtils.miniUserObject(user as User)
-      },
-      "gateway",
-      undefined,
-      undefined,
-      socket.apiVersion,
-      socket.client_build_date ?? null,
-    );
-
-    sesh.seq = packet.d.seq;
-    sesh.eventsBuffer = [];
-    sesh.start();
-
-    socket.session = sesh;
-  }
-
-  let sesh: Session | null = null; //to-do 
-
-  if (!session2) {
-    sesh = socket.session;
-  } else sesh = session2;
-
-  if (sesh.user.id !== socket.user_id) {
+  if (session2.user.id !== socket.user_id) {
     return socket.close(4004, 'Authentication failed');
   }
 
-  if (sesh.seq < packet.d.seq) {
+  if (session2.seq < packet.d.seq) {
     return socket.close(4007, 'Invalid seq');
   }
 
-  if (sesh.eventsBuffer.find((x) => x.seq == packet.d.seq)) {
-    socket.session = sesh;
+  if (session2.eventsBuffer.find((x) => x.seq == packet.d.seq)) {
+    socket.session = session2;
 
-     await prisma.user.update({
+    await prisma.user.update({
       where: { id: user.id },
       data: { last_seen_at: new Date().toISOString() }
     });
 
-    return await socket.session.resume(sesh.seq, socket);
+    return await socket.session.resume(session2.seq, socket);
   } else {
-    sesh.send({
+    socket.send(JSON.stringify({
       op: GatewayOpcode.INVALID_SESSION,
       d: false,
-    });
+    }));
+    
+    setTimeout(() => {
+      try { socket.close(4000, 'Session invalidated'); } catch {}
+    }, 500);
+    return;
   }
 }
 

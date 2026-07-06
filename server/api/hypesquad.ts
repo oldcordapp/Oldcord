@@ -4,6 +4,7 @@ import { logText } from '../helpers/logger.ts';
 import { rateLimitMiddleware } from '../helpers/middlewares.ts';
 import type { Response, Request } from "express";
 import { prisma } from '../prisma.ts';
+import dispatcher from '../helpers/dispatcher.ts';
 
 const router = Router({ mergeParams: true });
 const HOUSE_FLAGS: Record<number, number> = {
@@ -44,6 +45,52 @@ router.post('/online', rateLimitMiddleware(
 
     await updateAccountFlags(req.account.id, flags);
 
+    await dispatcher.dispatchEventTo(req.account.id, 'USER_UPDATE', {
+        avatar: req.account.avatar,
+        discriminator: req.account.discriminator,
+        email: req.account.email,
+        flags: flags,
+        id: req.account.id,
+        token: req.account.token,
+        username: req.account.username,
+        verified: req.account.verified,
+        mfa_enabled: req.account.mfa_enabled,
+        claimed: true,
+      });
+
+    return res.status(204).send();
+  } catch (error) {
+    logText(error, 'error');
+
+    return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+  }
+});
+
+router.delete('/online', rateLimitMiddleware(
+  "hypesquadHouseChange"
+), async (req: Request, res: Response) => {
+  try {
+    let flags = Number(req.account.flags || 0);
+
+    const ALL_HOUSES_MASK = HOUSE_FLAGS[1] | HOUSE_FLAGS[2] | HOUSE_FLAGS[3];
+
+    flags &= ~ALL_HOUSES_MASK; //remvoes all flags
+
+    await updateAccountFlags(req.account.id, flags);
+
+    await dispatcher.dispatchEventTo(req.account.id, 'USER_UPDATE', {
+        avatar: req.account.avatar,
+        discriminator: req.account.discriminator,
+        email: req.account.email,
+        flags: flags,
+        id: req.account.id,
+        token: req.account.token,
+        username: req.account.username,
+        verified: req.account.verified,
+        mfa_enabled: req.account.mfa_enabled,
+        claimed: true,
+      });
+
     return res.status(204).send();
   } catch (error) {
     logText(error, 'error');
@@ -56,9 +103,53 @@ router.post('/the-true-one', rateLimitMiddleware(
    "hypesquadHouseChange"
   ), async (req: Request, res: Response) => {
   try {
-    const flags = Number(req.account.flags || 0) ^ THE_TRUE_ONE;
+    const flags = Number(req.account.flags || 0);
 
     await updateAccountFlags(req.account.id, flags);
+
+    await dispatcher.dispatchEventTo(req.account.id, 'USER_UPDATE', {
+        avatar: req.account.avatar,
+        discriminator: req.account.discriminator,
+        email: req.account.email,
+        flags: flags,
+        id: req.account.id,
+        token: req.account.token,
+        username: req.account.username,
+        verified: req.account.verified,
+        mfa_enabled: req.account.mfa_enabled,
+        claimed: true,
+      });
+
+    return res.status(204).send();
+  } catch (error) {
+    logText(error, 'error');
+
+    return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+  }
+});
+
+router.delete('/the-true-one', rateLimitMiddleware(
+   "hypesquadHouseChange"
+  ), async (req: Request, res: Response) => {
+  try {
+    let flags = Number(req.account.flags || 0) ^ THE_TRUE_ONE;
+
+    flags &= ~THE_TRUE_ONE;
+    
+    await updateAccountFlags(req.account.id, flags);
+
+    await dispatcher.dispatchEventTo(req.account.id, 'USER_UPDATE', {
+        avatar: req.account.avatar,
+        discriminator: req.account.discriminator,
+        email: req.account.email,
+        flags: flags,
+        id: req.account.id,
+        token: req.account.token,
+        username: req.account.username,
+        verified: req.account.verified,
+        mfa_enabled: req.account.mfa_enabled,
+        claimed: true,
+      });
 
     return res.status(204).send();
   } catch (error) {

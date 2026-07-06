@@ -85,6 +85,7 @@ export interface Account {
     claimed?: boolean;
     mfa_enabled?: boolean;
     flags?: number;
+    public_flags?: number;
     created_at?: string;
     settings?: AccountSettings;
     guild_settings?: GuildSettings[];

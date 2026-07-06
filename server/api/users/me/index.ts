@@ -31,7 +31,7 @@ router.get('/', cacheForMiddleware(60 * 5, "private", false), async (req: Reques
   try {
     const { 
       id, username, discriminator, email, verified, 
-      avatar, bot, created_at, flags, premium 
+      avatar, bot, created_at, flags, public_flags, premium 
     } = req.account;
 
     const userProfile = {
@@ -44,6 +44,7 @@ router.get('/', cacheForMiddleware(60 * 5, "private", false), async (req: Reques
       bot,
       created_at,
       flags,
+      public_flags,
       premium
     };
 
@@ -635,8 +636,17 @@ router.get('/activities', (_req: Request, res: Response) => {
   return res.status(200).json([]);
 });
 
-router.get('/applications/:applicationid/entitlements', applicationMiddleware, (_req: Request, res: Response) => {
-  return res.status(200).json([]);
+router.get('/applications/:applicationid/entitlements', applicationMiddleware, (req: Request, res: Response) => {
+  return res.status(200).json([
+    {
+      id: "1523600000000000000",
+      sku_id: "521842865731534868",
+      application_id: req.params.applicationid,
+      user_id: req.account?.id || "0",
+      type: 1,
+      deleted: false
+    }
+  ]);
 });
 
 router.get('/activities/statistics/applications', (_req: Request, res: Response) => {
@@ -662,6 +672,34 @@ router.get('/feed/settings', (_req: Request, res: Response) => {
 
 router.get('/entitlements/gifts', (_req: Request, res: Response) => {
   return res.status(200).json([]);
+});
+
+router.post('/entitlements/redeem-code', (req: Request, res: Response) => {
+  const codeRedeemed = req.body.code;
+
+  const successfulEntitlementResponse = 
+  [{
+    id: "1523600000000000000",
+    sku_id: "521842865731534868",
+    application_id: "333647312157016074",
+    user_id: req.account.id,
+    type: 1,
+    deleted: false,
+    gift_code: codeRedeemed,
+    application: {
+      id: "333647312157016074",
+      name: "JASON CITRON SIMULATOR 2024 GOTY EDITION",
+      icon: "b542aea677d84898766fb46f3c510665",
+      description: "jasey"
+    }, //WUMP-AAAA-BBBB-CCCC
+    sku: {
+      id: "521842865731534868",
+      name: "JASON CITRON SIMULATOR 2024 GOTY EDITION",
+      type: 1
+    }
+  }];
+
+  return res.status(200).json(successfulEntitlementResponse);
 });
 
 router.get('/affinities/users', (_req: Request, res: Response) => {

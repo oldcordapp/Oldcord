@@ -3,7 +3,7 @@ import { prisma } from '../prisma.ts';
 import { handleMembersSync } from './lazyRequest.js';
 import { logText } from './logger.ts';
 import permissions from './permissions.ts';
-import type { Channel } from '../types/channel.ts';
+import type { Channel, PermissionOverwrite } from '../types/channel.ts';
 import type { Session } from '../types/session.ts';
 
 const dispatcher = {
@@ -192,10 +192,23 @@ const dispatcher = {
       const sub = session.subscriptions?.[guild.id];
 
       if (sub) {
-        const channel = guild.channels.find((x) => x.id === sub.channel_id) as Channel;
+        const dbChannel = guild.channels.find((x) => x.id === sub.channel_id);
 
-        if (channel) {
-          await handleMembersSync(session, channel, guild_id, sub);
+        if (dbChannel) {
+          const formattedChannel: Channel = {
+            ...dbChannel,
+            type: dbChannel.type !== null ? dbChannel.type : 0,
+            topic: dbChannel.topic,
+            name: dbChannel.name || undefined,
+            position: dbChannel.position || undefined,
+            nsfw: dbChannel.nsfw || undefined,
+            bitrate: dbChannel.bitrate || undefined,
+            user_limit: dbChannel.user_limit || undefined,
+            rate_limit_per_user: dbChannel.rate_limit_per_user || undefined,
+            permission_overwrites: dbChannel.permission_overwrites as unknown as PermissionOverwrite[] || []
+          };
+
+          await handleMembersSync(session, formattedChannel, guild_id, sub);
         }
       }
 

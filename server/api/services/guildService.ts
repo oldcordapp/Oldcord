@@ -73,6 +73,7 @@ export const GuildService = {
                     }
                 }
             }) || [],
+            webhooks: guild.webhooks || [],
             presences: (guild.members || []).map((member: any) => {
                 return globalUtils.getUserPresence(member)
             }) || [],
@@ -301,7 +302,8 @@ export const GuildService = {
                     include: {
                         user: true
                     }
-                }
+                },
+                webhooks: true
             }
         });
 

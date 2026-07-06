@@ -165,7 +165,7 @@ model Guild {
   creation_date                 String?
   exclusions                    Json?     @default("[]")
   custom_emojis                 Json?     @default("[]")
-  webhooks                      Json?     @default("[]")
+  webhooks                      Webhook[]
   features                      Json?     @default("[]")
   members                       Member[]
   channels                      Channel[]
@@ -340,6 +340,7 @@ model Webhook {
   name       String? @default("Captain Hook")
   creator_id String
   creator    User    @relation(fields: [creator_id], references: [id], onDelete: Cascade)
+  guild      Guild?  @relation(fields: [guild_id], references: [id], onDelete: Cascade)
 
   @@map("webhooks")
 }

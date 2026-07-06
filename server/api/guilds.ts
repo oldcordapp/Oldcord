@@ -777,7 +777,8 @@ router.get(
         limit, 
         action_type, 
         before,
-        user_id
+        user_id,
+        req.client_build_date
       );
 
       return res.status(200).json(entries);
@@ -824,10 +825,11 @@ router.post(
           throw 'Failed to get configured limits for createChannel route'
       }
 
+      let channels = guild.channels ?? [];
       const channelNameLimit = limits['channel_name'];
       const channelsPerGuildLimit = limits['channels_per_guild'];
 
-      if (guild.channels!!.length >= channelsPerGuildLimit.max) {
+      if (channels.length >= channelsPerGuildLimit.max) {
         return res.status(400).json({
           code: 400,
           message: `Maximum number of channels per guild exceeded (${channelsPerGuildLimit.max})`,
@@ -853,6 +855,7 @@ router.post(
 
       req.body.name = req.body.name.replace(/ /g, '-');
 
+      let permission_overwrites = req.body.permission_overwrites ?? [];
       let number_type = ChannelType.TEXT;
 
       if (typeof req.body.type === 'string') {
@@ -888,10 +891,11 @@ router.post(
         req.params.guildid as string,
         req.body.name,
         number_type,
-        guild.channels!!.length + 1,
+        channels.length + 1,
         [],
         null,
         send_parent_id,
+        permission_overwrites
       );
 
       if (channel == null) {

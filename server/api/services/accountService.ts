@@ -6,6 +6,7 @@ import type { User } from "../../types/user.ts";
 import type { Relationship } from "../../types/relationship.ts";
 import type { Bot } from "../../types/bot.ts";
 import type { StaffDetails } from "../../types/staff.ts";
+import globalUtils from "../../helpers/globalutils.ts";
 
 
 export const PUBLIC_USER_SELECT = {
@@ -45,7 +46,8 @@ export const AccountService = {
             mfa_enabled: user.mfa_enabled ?? false,
             disabled_until: user.disabled_until ?? undefined,
             disabled_reason: user.disabled_reason ?? undefined,
-            flags: user.flags ?? 0,
+            flags: user.flags ?? undefined,
+            public_flags: user.flags === undefined ? undefined : globalUtils.toPublicFlags(user.flags),
             created_at: user.created_at ?? "",
             settings: user.settings as unknown as AccountSettings,
             guild_settings: user.guild_settings as unknown as GuildSettings[],

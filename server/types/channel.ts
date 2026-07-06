@@ -9,13 +9,20 @@ export enum ChannelType {
   NEWS = 5
 };
 
+export interface PermissionOverwrite {
+  type: string;
+  id: string;
+  allow: number;
+  deny: number;
+}
+
 export interface Channel {
   id: string;
   type: ChannelType | string;
   icon?: string | null; //Group DMS
   guild_id?: string | null;
   position?: number;
-  permission_overwrites?: any[];
+  permission_overwrites?: PermissionOverwrite[];
   name?: string;
   topic?: string | null;
   nsfw?: boolean;

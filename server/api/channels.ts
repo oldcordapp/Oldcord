@@ -25,7 +25,7 @@ import { MessageType } from '../types/message.ts';
 import ctx from '../context.ts';
 import permissions from '../helpers/permissions.ts';
 import { AuditLogService } from './services/auditLogService.ts';
-import { AuditLogActionType } from '../types/auditlog.ts';
+import { AuditLogActionType, type AuditLogChange } from '../types/auditlog.ts';
 import type { WebSocket } from "ws";
 import { prisma } from '../prisma.ts';
 
@@ -36,7 +36,7 @@ router.get(
   channelMiddleware,
   channelPermissionsMiddleware('READ_MESSAGES'),
   cacheForMiddleware(60 * 5, "private", false),
-  async (req: Request, res: Response) => {
+  (req: Request, res: Response) => {
     return res
       .status(200)
       .json(globalUtils.personalizeChannelObject(req, req.channel, req.account)); //req.account is a dirty hack ok
@@ -64,7 +64,7 @@ router.post(
         member: req.member,
       };
 
-      if (!req.guild) {
+      if ((req as any).guild === undefined) {
         if (channel.type !== ChannelType.GROUPDM && channel.type !== ChannelType.DM) {
           return res.status(404).json(errors.response_404.UNKNOWN_CHANNEL);
         }
@@ -119,7 +119,7 @@ router.patch(
       const limits = ctx.config?.limits;
 
       if (!limits || !limits['channel_name']) {
-        throw 'Failed to get configured limits for updateChannel route';
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
       }
 
       const channelNameLimit = limits['channel_name'];
@@ -131,7 +131,7 @@ router.patch(
       ) {
         return res.status(400).json({
           code: 400,
-          name: `Must be between ${channelNameLimit.min} and ${channelNameLimit.max} characters.`,
+          name: `Must be between ${channelNameLimit.min.toString()} and ${channelNameLimit.max.toString()} characters.`,
         });
       }
 
@@ -140,7 +140,7 @@ router.patch(
       } //For when you just update group icons
 
       if (channel.type !== ChannelType.GROUPDM && channel.type !== ChannelType.DM) {
-        const auditChanges: any[] = [];
+        const auditChanges: AuditLogChange[] = [];
         const oldChannel = channel;
         const fieldsToTrack = [
           'name',
@@ -171,7 +171,7 @@ router.patch(
             req.account.id,
             channel.id,
             AuditLogActionType.CHANNEL_UPDATE,
-            req.headers['x-audit-log-reason'] as string ?? null,
+            req.headers['x-audit-log-reason'] === undefined ? null : req.headers['x-audit-log-reason'] as string,
             auditChanges,
             {}
           );
@@ -183,16 +183,16 @@ router.patch(
           channel.topic = req.body.topic ?? channel.topic;
           channel.nsfw = req.body.nsfw ?? channel.nsfw;
 
-          const rateLimit = req.body.rate_limit_per_user ?? channel.rate_limit_per_user;
+          const rateLimit: number = req.body.rate_limit_per_user ?? channel.rate_limit_per_user;
 
           channel.rate_limit_per_user = Math.min(Math.max(rateLimit, 0), 120);
         }
 
         if (channel.type === ChannelType.VOICE) {
-          const userLimit = req.body.user_limit ?? channel.user_limit;
+          const userLimit: number = req.body.user_limit ?? channel.user_limit;
           channel.user_limit = Math.min(Math.max(userLimit, 0), 99);
 
-          const bitrate = req.body.bitrate ?? channel.bitrate;
+          const bitrate: number = req.body.bitrate ?? channel.bitrate;
           channel.bitrate = Math.min(Math.max(bitrate, 8000), 96000);
         }
       } //do this for only guild channels
@@ -207,10 +207,6 @@ router.patch(
 
       if (channel.type === ChannelType.GROUPDM) {
         channel = outcome;
-
-        if (!channel) {
-          return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
-        }
 
         await dispatcher.dispatchEventInPrivateChannel(channel.id, 'CHANNEL_UPDATE', function (socket: WebSocket) {
           return globalUtils.personalizeChannelObject(socket, channel);
@@ -264,7 +260,7 @@ router.get(
 router.get(
   '/:channelid/call',
   channelMiddleware,
-  async (req: Request, res: Response) => {
+  (req: Request, res: Response) => {
     try {
       const channel = req.channel;
 
@@ -341,7 +337,7 @@ router.post(
       const limits = ctx.config?.limits;
 
       if (!limits || !limits['invites_per_guild']) {
-        throw 'Failed to get configured limits for createInvite route';
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
       }
 
       const invitesPerGuildLimit = limits['invites_per_guild'];
@@ -358,15 +354,15 @@ router.post(
       if (invites.length >= invitesPerGuildLimit.max) {
         return res.status(400).json({
           code: 400,
-          message: `Maximum number of invites per guild exceeded (${invitesPerGuildLimit.max})`,
+          message: `Maximum number of invites per guild exceeded (${invitesPerGuildLimit.max.toString()})`,
         });
       }
 
-      let max_age = Number(req.body.max_age) || 0;
-      let max_uses = Number(req.body.max_uses) || 0;
-      let temporary = Boolean(req.body.temporary) ?? false;
-      let xkcdpass = Boolean(req.body.xkcdpass) ?? false;
-      let regenerate = Boolean(req.body.regenerate) ?? true;
+      let max_age = (req.body.max_age as number | undefined) || 0;
+      let max_uses = (req.body.max_uses as number | undefined) || 0;
+      let temporary = (req.body.temporary as boolean | undefined) ?? false;
+      let xkcdpass = (req.body.xkcdpass as boolean | undefined) ?? false;
+      let regenerate = (req.body.regenerate as boolean | undefined) ?? true;
 
       if (!channel.guild_id) {
         return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
@@ -454,12 +450,9 @@ router.post(
       const guild = req.guild;
       const channel = req.channel;
 
-      if (!req.body.name) {
-        req.body.name = 'Captain Hook';
-      }
+      req.body.name ??= 'Captain Hook'; //???
 
-      const name = req.body.name;
-
+      const name = req.body.name as string;
       const webhook = await WebhookService.createWebhook(
         guild.id,
         account.id,
@@ -478,11 +471,11 @@ router.post(
       ];
 
       await AuditLogService.insertEntry(
-        channel.guild_id!!,
+        guild.id,
         req.account.id,
         webhook.id,
         AuditLogActionType.WEBHOOK_CREATE,
-        req.headers['x-audit-log-reason'] as string ?? null,
+        req.headers['x-audit-log-reason'] === undefined ? null : req.headers['x-audit-log-reason'] as string,
         auditChanges,
         {}
       );
@@ -503,19 +496,20 @@ router.put(
   guildPermissionsMiddleware('MANAGE_ROLES'),
   async (req: Request, res: Response) => {
     try {
-      const id = req.params.id;
-      let type = req.body.type;
-
-      if (!type) {
-        type = 'role';
-      }
+      const id = req.params.id as string;
+      let type = req.body.type ?? 'role';
 
       if (type != 'member' && type != 'role') {
-        return res.status(404).json({
-          code: 404,
-          message: 'Unknown Type',
+        return res.status(400).json({
+          code: 50035,
+          message: 'Invalid Form Body',
+          errors: {
+            type: {
+              _errors: [{ code: 'BASE_TYPE_CHOICES', message: 'Value must be one of ("member", "role").' }]
+            }
+          }
         });
-      } //figure out this response
+      } //cbf so im just doing what discord does
 
       let channel: Channel | null = req.channel;
       let guild = req.guild;
@@ -546,7 +540,7 @@ router.put(
 
       const isUpdate = overwriteIndex !== -1;
       const actionType = isUpdate ? AuditLogActionType.CHANNEL_OVERWRITE_UPDATE : AuditLogActionType.CHANNEL_OVERWRITE_CREATE;
-      const auditChanges: any[] = [];
+      const auditChanges: AuditLogChange[] = [];
       const typeInt = type === 'role' ? 0 : 1;
 
       if (!isUpdate) {
@@ -584,7 +578,7 @@ router.put(
           req.account.id,
           channel.id,
           actionType,
-          req.headers['x-audit-log-reason'] as string ?? null,
+          req.headers['x-audit-log-reason'] === undefined ? null : req.headers['x-audit-log-reason'] as string,
           auditChanges,
           auditOptions
         );
@@ -644,7 +638,6 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const id = req.params.id;
-      const channel_id = req.params.channelid as string;
 
       let channel: Channel | null = req.channel;
 
@@ -654,8 +647,8 @@ router.delete(
 
       const overwriteIndex = channel_overwrites.findIndex((x) => x.id == id);
 
-      if (!req.channel_types_are_ints) {
-        channel.type = channel.type == ChannelType.VOICE ? 'voice' : 'text';
+      if (overwriteIndex === -1) {
+        return res.status(404).json(errors.response_404.UNKNOWN_OVERWRITE);
       }
 
       const deletedOverwrite = channel_overwrites[overwriteIndex];
@@ -686,30 +679,21 @@ router.delete(
         req.account.id,
         channel.id,
         AuditLogActionType.CHANNEL_OVERWRITE_DELETE,
-        req.headers['x-audit-log-reason'] as string ?? null,
+        req.headers['x-audit-log-reason'] === undefined ? null : req.headers['x-audit-log-reason'] as string,
         auditChanges,
         auditOptions
       );
 
-      if (overwriteIndex === -1) {
-        await dispatcher.dispatchEventInChannel(req.guild.id, channel.id, 'CHANNEL_UPDATE', channel);
+      const updatedOverwrites = channel_overwrites.filter((x) => x.id !== id);
 
-        return res.status(204).send();
-      }
+      await ChannelService.updateChannelPermissionOverwrites(channel.id, updatedOverwrites);
 
-      await ChannelService.deleteChannelPermissionOverwrite(
-        channel_id,
-        channel_overwrites[overwriteIndex],
-      );
-
-      channel = await ChannelService.getChannelById(channel.id); //do this better
-
-      if (!channel?.guild_id) {
-        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
-      }
+      channel.permission_overwrites = updatedOverwrites;
 
       if (!req.channel_types_are_ints) {
         channel.type = channel.type == ChannelType.VOICE ? 'voice' : 'text';
+      } else {
+        channel.type = parseInt(channel.type as string);
       }
 
       await dispatcher.dispatchEventInChannel(req.guild.id, channel.id, 'CHANNEL_UPDATE', channel);
@@ -768,7 +752,7 @@ router.put(
       channel.recipients.push(recipient);
 
       if (!(await ChannelService.updateChannelRecipients(channel.id, channel.recipients.map((recipient) => recipient.id))))
-        throw 'Failed to update recipients list in channel';
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
 
       //Notify everyone else
       await dispatcher.dispatchEventInPrivateChannel(channel.id, 'CHANNEL_UPDATE', function (socket: WebSocket) {
@@ -823,7 +807,7 @@ router.delete(
       channel.recipients = channel.recipients?.filter((recip) => recip.id !== recipient.id);
 
       if (!(await ChannelService.updateChannelRecipients(channel.id, channel.recipients!!.map((recipient) => recipient.id))))
-        throw 'Failed to update recipients list in channel';
+        return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
 
       //Notify everyone else
       await dispatcher.dispatchEventInPrivateChannel(channel.id, 'CHANNEL_UPDATE', function (socket: WebSocket) {
@@ -910,7 +894,7 @@ router.delete(
             channel.owner_id = newOwnerId;
 
             if (!(await ChannelService.updateChannel(channel.id, channel, true))) {
-              throw 'Failed to transfer ownership of group channel';
+              return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
             }
           } else if (newRecipientsList!.length === 0) {
             await ChannelService.deleteChannel(channel.id);
@@ -918,7 +902,7 @@ router.delete(
           }
 
           if (!(await ChannelService.updateChannelRecipients(channel.id, newRecipientsList?.map((recipient) => recipient.id)!!)))
-            throw 'Failed to update recipients list in channel';
+           return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
 
           await dispatcher.dispatchEventInPrivateChannel(channel.id, 'CHANNEL_UPDATE', function (socket: WebSocket) {
             return globalUtils.personalizeChannelObject(socket, channel);

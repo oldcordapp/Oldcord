@@ -5,7 +5,7 @@ import { AccountService } from "./accountService.ts";
 import { UploadService } from "./uploadService.ts";
 import { generate } from "../../helpers/snowflake.ts";
 import type { User } from "../../types/user.ts";
-import { ChannelType, type Channel } from "../../types/channel.ts";
+import { ChannelType, type Channel, type PermissionOverwrite } from "../../types/channel.ts";
 import { InviteService } from "./inviteService.ts";
 import type { Invite } from "../../types/invite.ts";
 
@@ -205,7 +205,7 @@ export const ChannelService = {
             return [];
         }
     },
-    async getChannelPermissionOverwrites(channelId: string): Promise<any[]> {
+    async getChannelPermissionOverwrites(channelId: string): Promise<PermissionOverwrite[]> {
         try {
             const channel = await prisma.channel.findUnique({
                 where: { id: channelId },
@@ -216,52 +216,17 @@ export const ChannelService = {
                 return [];
             }
 
-            return channel.permission_overwrites as any[];
+            return channel.permission_overwrites as unknown as PermissionOverwrite[];
         } catch (error) {
             logText(error, 'error');
             return [];
         }
     },
-    async updateChannelPermissionOverwrites(channelId: string, overwrites: any[]): Promise<boolean> {
+    async updateChannelPermissionOverwrites(channelId: string, overwrites: PermissionOverwrite[]): Promise<boolean> {
         try {
-            const currentOverwrites = await this.getChannelPermissionOverwrites(channelId);
-
-            for (const overwrite of overwrites) {
-                const index = currentOverwrites.findIndex((x) => x.id === overwrite.id);
-
-                if (index === -1) {
-                    currentOverwrites.push(overwrite);
-                } else {
-                    currentOverwrites[index] = overwrite;
-                }
-            }
-
             await prisma.channel.update({
                 where: { id: channelId },
-                data: { permission_overwrites: currentOverwrites }
-            });
-
-            return true;
-        } catch (error) {
-            logText(error, 'error');
-            return false;
-        }
-    },
-
-    async deleteChannelPermissionOverwrite(channelId: string, overwriteId: string): Promise<boolean> {
-        try {
-            const currentOverwrites = await this.getChannelPermissionOverwrites(channelId);
-            const index = currentOverwrites.findIndex((x) => x.id === overwriteId);
-
-            if (index === -1) {
-                return false;
-            }
-
-            currentOverwrites.splice(index, 1);
-
-            await prisma.channel.update({
-                where: { id: channelId },
-                data: { permission_overwrites: currentOverwrites }
+                data: { permission_overwrites: overwrites as any }
             });
 
             return true;
@@ -295,6 +260,7 @@ export const ChannelService = {
         recipient_ids: string[] = [],
         owner_id: string | null = null,
         parent_id: string | null = null,
+        permission_overwrites: any[] | [] = []
     ): Promise<Channel | null> {
         try {
             const channel_id = generate();
@@ -309,7 +275,7 @@ export const ChannelService = {
                     name: isPrivate ? null : name,
                     position: position || 0,
                     last_message_id: '0',
-                    permission_overwrites: [],
+                    permission_overwrites: permission_overwrites,
                 }
             });
 
@@ -364,7 +330,7 @@ export const ChannelService = {
                 name: name,
                 type: type,
                 position: position,
-                permission_overwrites: [],
+                permission_overwrites: permission_overwrites,
                 guild_id: [ChannelType.TEXT, ChannelType.VOICE, ChannelType.CATEGORY, ChannelType.NEWS].includes(type) ? guild_id : undefined,
                 parent_id: [ChannelType.TEXT, ChannelType.VOICE, ChannelType.NEWS].includes(type) ? parent_id : undefined,
                 ...(type === ChannelType.TEXT && {

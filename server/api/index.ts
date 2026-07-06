@@ -62,7 +62,16 @@ app.get('/promotions', (_req: Request, res: Response) => {
 });
 
 app.get('/applications', (_req: Request, res: Response) => {
-  return res.status(200).json([]);
+  return res.status(200).json([
+    {
+      id: "333647312157016074",
+      name: "JASON CITRON SIMULATOR 2024 GOTY EDITION",
+      icon: "b542aea677d84898766fb46f3c510665",
+      description: "jasey",
+      summary: "jason boy",
+      verify_key: '93661a9eefe452d12f51e129e8d9340e7ca53a770158c0ec7970e701534b7420',
+    }
+  ]);
 });
 
 app.get('/activities', (_req: Request, res: Response) => {

@@ -246,6 +246,11 @@ router.get('/:userid/profile', userMiddleware, friendsAndMutualGuildsMiddleware,
     });
 
     ret.user = globalUtils.miniUserObject(user);
+
+    if (account.id !== user.id) {
+       ret.user.flags = user.public_flags;
+    }
+
     ret.connected_accounts = connectedAccounts;
     ret.premium_since = new Date().toISOString();
 

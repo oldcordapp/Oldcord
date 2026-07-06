@@ -57,10 +57,7 @@ router.get(
       const channel = req.channel;
 
       if (channel.type === ChannelType.VOICE) {
-        return res.status(400).json({
-          code: 400,
-          message: 'Cannot get text messages from a voice channel.', //I mean we're cool with you doing that and everything but realistically, who is going to read these messages?
-        }); //whats the proper response here?
+        return res.status(400).json(errors.response_400.INVALID_CHANNEL_TYPE_ACTION);
       }
 
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
@@ -81,7 +78,7 @@ router.get(
         })
 
         if (basic_guild) {
-           includeReactions = (basic_guild.exclusions as unknown as any[]).includes('reactions');
+           includeReactions = (basic_guild.exclusions as string[]).includes('reactions');
            guild_name = basic_guild.name;
         }
       }
@@ -103,9 +100,19 @@ router.get(
         );
       }
 
-      const personalized = messages.map((m) =>
-        globalUtils.personalizeMessageObject(m, guild_name ?? undefined, req.client_build_date)
-      );
+      const personalized = messages.map((m) => {
+        const formatted = globalUtils.personalizeMessageObject(m, guild_name ?? undefined, req.client_build_date);
+
+        if (formatted.author && formatted.author.id !== creator.id) {
+          formatted.author.public_flags = globalUtils.toPublicFlags(formatted.author.flags);
+
+          delete formatted.author.flags; 
+        } else if (formatted.author) {
+          formatted.author.public_flags = globalUtils.toPublicFlags(formatted.author.flags);
+        }
+
+        return formatted;
+      });
 
       return res.status(200).json(personalized);
     } catch (error) {

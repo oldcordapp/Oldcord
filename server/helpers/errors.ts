@@ -245,6 +245,10 @@ const errors = {
       code: 50046,
       message: 'Invalid Asset',
     },
+    GIFT_REDEEMED_ALREADY: {
+      code: 50050,
+      message: 'This gift has been redeemed already.'
+    },
     INVALID_GUILD: {
       code: 50055,
       message: 'Invalid Guild',

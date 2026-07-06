@@ -87,7 +87,7 @@ router.patch(
           AuditLogActionType.WEBHOOK_UPDATE, // WEBHOOK_UPDATE
           req.headers['x-audit-log-reason'] as string ?? null,
           auditChanges,
-          {}
+          { }
         );
       }
 

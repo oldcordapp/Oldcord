@@ -80,7 +80,7 @@ export const AuditLogService = {
         });
     },
 
-    async getAuditLogEntries(guildId: string, limit: number, action_type?: number, before_id?: string, user_id?: string): Promise<{
+    async getAuditLogEntries(guildId: string, limit: number, action_type?: number, before_id?: string, user_id?: string, date?: Date): Promise<{
         audit_log_entries: any[],
         users: any[],
         webhooks: any[],
@@ -105,10 +105,17 @@ export const AuditLogService = {
         }
 
         const entries = await prisma.auditLog.findMany({
-            where: whereClause,
+            where: {
+                ...whereClause,
+                action_type: (date && date.getFullYear() < 2019)
+                ? (whereClause.action_type !== undefined 
+                    ? (whereClause.action_type < 74 ? whereClause.action_type : undefined)
+                    : { lt: 74 }) //NO MSG pins & unpin
+                : whereClause.action_type // modern clients behave normally
+            },
             take: clampedLimit,
             orderBy: { id: 'desc' }
-        });
+        }); 
 
         const allIds = new Set<string>();
 

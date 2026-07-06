@@ -14,7 +14,7 @@ import type { GuildRegion } from '../types/guild.ts';
 import type { Config } from '../types/config.ts';
 import type { User } from '../types/user.ts';
 import type { Account } from '../types/account.ts';
-import { ChannelType, type Channel } from '../types/channel.ts';
+import { ChannelType, type Channel, type PermissionOverwrite } from '../types/channel.ts';
 import type { Bot } from '../types/bot.ts';
 import ctx from '../context.ts';
 import { RelationshipType } from '../types/relationship.ts';
@@ -52,6 +52,23 @@ const globalUtils = {
     : false,
   generateSsrc(): number {
     return randomBytes(4).readUInt32BE(0);
+  },
+  toPublicFlags: (flags: number | 0): number => {
+    const PUBLIC_FLAGS_MASK = 
+      (1 << 0)  | // Staff
+      (1 << 1)  | // Partnered Server Owner
+      (1 << 2)  | // HypeSquad Events
+      (1 << 3)  | // Bug Hunter Level 1
+      (1 << 6)  | // House Bravery
+      (1 << 7)  | // House Brilliance
+      (1 << 8)  | // House Balance
+      (1 << 9)  | // Early Supporter
+      (1 << 14);  // Bug Hunter Level 2
+
+      const cleanFlags = Number(flags || 0);
+    
+      //isolate flags to only stuff which is public
+      return cleanFlags & PUBLIC_FLAGS_MASK;
   },
   updateAccount: async (account: any, avatar: string | null, username: string, discriminator: string, password: string | null, new_pw: string | null, new_em: string | null): Promise<number> => {
     try {
@@ -942,7 +959,8 @@ const globalUtils = {
       return;
     }
 
-    let userPrivChannels: string[] = typeof user.private_channels === 'string' ? JSON.parse(user.private_channels) : (user.private_channels as string[] || []);
+    let userPrivChannels: string[] = Array.isArray(user.private_channels) ? (user.private_channels as string[]) : [];
+
     const sendCreate = !userPrivChannels.includes(private_channel_id);
 
     userPrivChannels = [
@@ -962,8 +980,29 @@ const globalUtils = {
       });
 
       if (private_channel) {
+        const formattedChannel: Channel = {
+          ...private_channel,
+          type: private_channel.type ?? 0,
+          name: private_channel.name ?? undefined,
+          position: private_channel.position ?? undefined,
+          nsfw: private_channel.nsfw ?? undefined,
+          bitrate: private_channel.bitrate ?? undefined,
+          user_limit: private_channel.user_limit ?? undefined,
+          rate_limit_per_user: private_channel.rate_limit_per_user ?? undefined,
+          permission_overwrites: private_channel.permission_overwrites as unknown as PermissionOverwrite[] || [],
+          recipients: private_channel.recipients?.map((user) => ({
+            ...user,
+            username: user.username ?? 'Deleted User',
+            discriminator: user.discriminator ?? '0000',
+            avatar: user.avatar ?? null,
+            bot: user.bot ?? false,
+            premium: user.premium ?? false,
+            flags: user.flags ?? 0
+          }))
+        };
+
         await dispatcher.dispatchEventTo(recipient_id, 'CHANNEL_CREATE', function (socket: WebSocket) {
-          return globalUtils.personalizeChannelObject(socket, private_channel as Channel);
+          return globalUtils.personalizeChannelObject(socket, formattedChannel);
         });
       }
     }
@@ -1034,8 +1073,8 @@ const globalUtils = {
       return channel;
     }
 
-    if (!req.plural_recipients && channel.type as number >= ChannelType.VOICE) {
-      return null;
+    if (!req.plural_recipients && !channel.guild_id && (channel.type as number) === ChannelType.GROUPDM) {
+      return null; 
     }
 
     const clone: any = {};
@@ -1082,6 +1121,8 @@ const globalUtils = {
       avatar: user.avatar,
       bot: user.bot,
       premium: user.premium ?? true,
+      flags: user.flags ?? 0,
+      public_flags: user.public_flags ?? undefined
     };
   },
   miniBotObject: (bot: Account | Bot): Bot => {

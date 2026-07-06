@@ -21,6 +21,7 @@ import ctx from '../context.ts';
 import type { Guild } from '../types/guild.ts';
 import { RelationshipService } from '../api/services/relationshipService.ts';
 import type { Game, Presence, StatusType } from '../types/presence.ts';
+import type { Webhook } from '../types/webhook.ts';
 
 let erlpack: any = null;
 
@@ -486,7 +487,7 @@ class session implements Session {
         }
 
          if (guild.webhooks && Array.isArray(guild.webhooks)) {
-            guild.webhooks = guild.webhooks.map((webhook) => {
+            guild.webhooks = guild.webhooks.map((webhook: Webhook) => {
               const { token, ...sanitizedWebhook } = webhook;
 
               return sanitizedWebhook;
@@ -749,6 +750,7 @@ class session implements Session {
           discriminator: this.user.discriminator,
           verified: this.user.verified || true,
           bot: this.user.bot || false,
+          flags: this.user.flags || 0,
           premium: this.user.premium || true,
           claimed: this.user.claimed || true,
           mfa_enabled: this.user.mfa_enabled || false,

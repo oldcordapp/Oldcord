@@ -449,6 +449,36 @@ app.get('/app-assets/:applicationid/store/:file', async (req: Request, res: Resp
   }
 });
 
+app.get('/game-assets/:applicationid/:file', async (req: Request, res: Response) => {
+  try {
+    const directoryPath = path.join(process.cwd(), 'www_dynamic', 'game_assets');
+
+    if (!fs.existsSync(directoryPath)) {
+      return res.status(404).send('File not found');
+    }
+
+    const files = fs.readdirSync(directoryPath);
+    let matchedFile: string | null = null;
+
+    if (req.params.file.includes('.mp4')) {
+      matchedFile = files[1];
+    } else matchedFile = files[0];
+
+    if (!matchedFile) {
+      return res.status(404).send('File not found');
+    }
+
+    const filePath = path.join(directoryPath, matchedFile);
+
+    res.status(200).sendFile(filePath);
+    return;
+  } catch (error) {
+    logText(error, 'error');
+
+    return res.status(500).json(errors.response_500.INTERNAL_SERVER_ERROR);
+  }
+});
+
 app.get('/store-directory-assets/applications/:applicationId/:file', async (req: Request, res: Response) => {
   try {
     const directoryPath = path.join(process.cwd(), 'www_dynamic', 'app_assets');

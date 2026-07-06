@@ -1,4 +1,4 @@
-import type { Channel } from '../types/channel.ts';
+import type { PermissionOverwrite } from '../types/channel.ts';
 import { prisma } from '../prisma.ts';
 import { logText } from './logger.ts';
 
@@ -112,7 +112,7 @@ const permissions = {
       if (data.owner_id === user_id) return true;
 
       const member = data.members[0];
-      const channel = data.channels[0] as Channel;
+      
       const everyoneRole = data.roles.find(r => r.role_id === guild_id);
 
       let perms = BigInt(everyoneRole?.permissions ?? 0);
@@ -127,7 +127,7 @@ const permissions = {
 
       if ((perms & ADMIN_BIT) === ADMIN_BIT) return true;
 
-      const overwrites = channel.permission_overwrites as any[] || [];
+      const overwrites = data.channels[0].permission_overwrites as unknown as PermissionOverwrite[];
 
       if (overwrites.length > 0) {
         const everyoneOverwrite = overwrites.find(o => o.id === guild_id);

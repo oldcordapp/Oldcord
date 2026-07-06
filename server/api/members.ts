@@ -97,7 +97,7 @@ async function updateMember(guild_id: string, member: {
   if (roles) {
     const newRoles: string[] = roles.map((r) => (typeof r === 'object' ? r.id : r));
 
-    const currentRoles = [...member.roles!!].sort();
+    const currentRoles = [...member.roles].sort();
     const incomingRoles = [...newRoles].sort();
 
     if (JSON.stringify(currentRoles) !== JSON.stringify(incomingRoles)) {
@@ -341,8 +341,8 @@ router.patch(
       const newMember = await updateMember(guild.id, {
         user: globalUtils.miniUserObject(member.user as User),
         user_id: member.user.id,
-        roles: req.body.roles ?? member.roles,
-        nick: req.body.nick !== undefined ? req.body.nick : member.nick
+        roles: member.roles,
+        nick: member.nick
       }, req.body.roles ?? member.roles, req.body.nick !== undefined ? req.body.nick : member.nick);
 
       if ("code" in newMember) {
@@ -354,7 +354,7 @@ router.patch(
         nick: newMember.nick,
         guild_id: req.guild.id,
         roles: newMember.roles,
-        channel_id: voiceState.channel_id,
+        channel_id: voiceState?.channel_id ?? null,
         joined_at: member.joined_at,
         deaf: member.deaf,
         mute: member.mute,

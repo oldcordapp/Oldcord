@@ -6,4 +6,6 @@ export interface User {
     bot: boolean;
     webhook?: boolean;
     premium?: boolean;
+    flags?: number;
+    public_flags?: number;
 };

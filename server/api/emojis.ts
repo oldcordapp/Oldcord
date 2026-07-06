@@ -292,17 +292,23 @@ router.delete(
     try {
       const guild = req.guild;
       const emoji_id = req.params.emoji;
-      const emojis = guild.emojis;
-      const emojiExists = emojis!!.some((x) => x.id === emoji_id);
+      const emojis = guild.emojis ?? [];
+      const emojiExists = emojis.some((x) => x.id === emoji_id);
 
       if (!emojiExists) {
         return res.status(404).json(errors.response_404.UNKNOWN_EMOJI);
       }
 
-      const filteredEmojis = emojis!!.filter((x) => x.id !== emoji_id);
+      const emojiToDelete = emojis.find((x) => x.id === emoji_id);
+
+      if (!emojiToDelete) {
+        return res.status(404).json(errors.response_404.UNKNOWN_EMOJI);
+      }
+
+      const filteredEmojis = emojis.filter((x) => x.id !== emoji_id);
 
       const auditChanges = [
-        { key: 'name', old_value: filteredEmojis[0].name }
+        { key: 'name', old_value: emojiToDelete.name }
       ];
 
       await AuditLogService.insertEntry(
